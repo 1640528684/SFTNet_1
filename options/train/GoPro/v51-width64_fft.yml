@@ -20,7 +20,7 @@ datasets:
 
     filename_tmpl: '{}'
     io_backend:
-      type: lmdb
+      type: disk #lmdb
 
     gt_size: 256
     use_flip: true
