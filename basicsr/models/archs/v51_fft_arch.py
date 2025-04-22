@@ -175,7 +175,7 @@ class NAFBlock(nn.Module):
 class FPNBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(FPNBlock, self).__init__()
-        # Ensure the lateral convolution matches the input channels
+        # 确保横向卷积匹配输入通道
         self.lateral = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.smooth = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
 
@@ -199,12 +199,13 @@ class NAFNet(nn.Module):
             self.encoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
             self.downs.append(nn.Conv2d(chan, 2 * chan, 2, 2))
             chan = chan * 2
+
         self.middle_blks = nn.Sequential(*[TransformerBlock(chan) for _ in range(middle_blk_num)])
         for num in dec_blk_nums:
             self.ups.append(nn.Sequential(nn.Conv2d(chan, chan * 2, 1, bias=False), nn.PixelShuffle(2)))
             chan = chan // 2
             self.decoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
-        # Correct the FPNBlock initialization to match the channels
+        # 修正 FPNBlock 初始化以匹配通道
         fpn_channels = [width * 2**i for i in range(len(enc_blk_nums))]
         self.fpn = nn.ModuleList([FPNBlock(in_chan, width) for in_chan in fpn_channels])
 
@@ -229,7 +230,6 @@ class NAFNet(nn.Module):
                 fpn_features.append(fpn(x))
         fused = sum(fpn_features)
         x = self.ending(x + fused)
-        x1 = x
         return x[:, :, :H, :W]
 
     def check_image_size(self, x):
@@ -240,7 +240,7 @@ class NAFNet(nn.Module):
         return x
 
 class v51fftLocal(Local_Base, NAFNet):
-    def __init__(self, *args, train_size=(1, 3, 256, 256), fast_imp=False, **kwargs):
+     def __init__(self, *args, train_size=(1, 3, 256, 256), fast_imp=False, **kwargs):
         Local_Base.__init__(self)
         NAFNet.__init__(self, *args, **kwargs)
         N, C, H, W = train_size
