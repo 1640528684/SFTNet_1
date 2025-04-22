@@ -246,13 +246,19 @@ class NAFNet(nn.Module):
             x = up(x)
             x = x + enc_skip
             x = decoder(x)
-            print(f"Decoder {i} output shape: {x.shape}")
-            try:
-                fpn_features.append(fpn(x))
-            except RuntimeError as e:
-                print(f"Error in FPNBlock {i}: {e}")
-                print(f"Input shape: {x.shape}")
-                raise
+            # 上采样到目标尺寸（如 256x256）
+            target_size = (256, 256)
+            if x.shape[2:] != target_size:
+                x = F.interpolate(x, size=target_size, mode='bilinear', align_corners=False)
+            # 应用 FPNBlock 并收集特征
+            fpn_out = fpn(x)
+            fpn_features.append(fpn_out)
+        
+         # 验证所有特征图尺寸一致
+        print("FPN features sizes:")
+        for feat in fpn_features:
+            print(feat.shape)
+        # 融合特征
         fused = sum(fpn_features)
         x = self.ending(x + fused)
         return x[:, :, :H, :W]
