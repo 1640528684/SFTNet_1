@@ -175,11 +175,13 @@ class NAFBlock(nn.Module):
 class FPNBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(FPNBlock, self).__init__()
-        # Ensure the lateral convolution matches the input channels
+        # Debugging: Print the input and output channels
+        print(f"Initializing FPNBlock with in_channels={in_channels}, out_channels={out_channels}")
         self.lateral = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.smooth = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x):
+        print(f"FPNBlock input shape: {x.shape}, lateral in_channels: {self.lateral.in_channels}")
         x = self.lateral(x)
         x = self.smooth(x)
         return x
@@ -206,6 +208,7 @@ class NAFNet(nn.Module):
             self.decoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
         # Correct the FPNBlock initialization to match the channels
         fpn_channels = [width * 2**i for i in range(len(enc_blk_nums))]
+        print(f"fpn_channels: {fpn_channels}")
         self.fpn = nn.ModuleList([FPNBlock(in_chan, width) for in_chan in fpn_channels])
 
         self.padder_size = 2 ** len(self.encoders)
@@ -217,14 +220,17 @@ class NAFNet(nn.Module):
         encs = []
         for encoder, down in zip(self.encoders, self.downs):
             x = encoder(x)
+            print(f"Encoder {i} output shape: {x.shape}")
             encs.append(x)
             x = down(x)
+            print(f"Downsample {i} output shape: {x.shape}")
         x = self.middle_blks(x)
         fpn_features = []
         for i, (decoder, up, enc_skip, fpn) in enumerate(zip(self.decoders, self.ups, encs[::-1], self.fpn)):
             x = up(x)
             x = x + enc_skip
             x = decoder(x)
+            print(f"Decoder {i} output shape: {x.shape}")
             if i < len(self.fpn):
                 try:
                     fpn_features.append(fpn(x))
