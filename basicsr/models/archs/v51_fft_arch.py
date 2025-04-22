@@ -187,62 +187,67 @@ class FPNBlock(nn.Module):
         return x
 
 class NAFNet(nn.Module):
-    def __init__(self, img_channel=3, width=16, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[]):
+    def __init__(self, img_channel=3, width=32, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[]):
         super().__init__()
-        self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1, bias=True)
-        self.ending = nn.Conv2d(in_channels=width, out_channels=img_channel, kernel_size=3, padding=1, stride=1, groups=1, bias=True)
+        print(f"Received enc_blk_nums: {enc_blk_nums}")  # 调试：确认参数传递
+        self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1)
+        self.ending = nn.Conv2d(in_channels=width, out_channels=img_channel, kernel_size=3, padding=1)
         self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
         self.middle_blks = nn.ModuleList()
         self.ups = nn.ModuleList()
         self.downs = nn.ModuleList()
         chan = width
+
+        print(f"enc_blk_nums length: {len(enc_blk_nums)}")  # 调试：确认列表长度
         for num in enc_blk_nums:
             self.encoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
             self.downs.append(nn.Conv2d(chan, 2 * chan, 2, 2))
             chan = chan * 2
         self.middle_blks = nn.Sequential(*[TransformerBlock(chan) for _ in range(middle_blk_num)])
         for num in dec_blk_nums:
-            self.ups.append(nn.Sequential(nn.Conv2d(chan, chan * 2, 1, bias=False), nn.PixelShuffle(2)))
+            self.ups.append(nn.Sequential(nn.Conv2d(chan, chan * 2, 1), nn.PixelShuffle(2)))
             chan = chan // 2
             self.decoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
-        # Correct the FPNBlock initialization to match the channels
+        # 确保 FPNBlock 的输入通道匹配
         fpn_channels = [width * 2**i for i in range(len(enc_blk_nums))]
-        print(f"fpn_channels: {fpn_channels}")
         self.fpn = nn.ModuleList([FPNBlock(in_chan, width) for in_chan in fpn_channels])
-
         self.padder_size = 2 ** len(self.encoders)
+
+        print(f"encoders length: {len(self.encoders)}, downs length: {len(self.downs)}")  # 调试：确认模块数量
 
     def forward(self, inp):
         B, C, H, W = inp.shape
         inp = self.check_image_size(inp)
         x = self.intro(inp)
         encs = []
-        for encoder, down in zip(self.encoders, self.downs):
+        i = -1  # 初始化 i，避免未定义
+        # Encoder part
+        for i, (encoder, down) in enumerate(zip(self.encoders, self.downs)):
             x = encoder(x)
             print(f"Encoder {i} output shape: {x.shape}")
             encs.append(x)
             x = down(x)
             print(f"Downsample {i} output shape: {x.shape}")
         x = self.middle_blks(x)
+        print(f"Middle blocks output shape: {x.shape}")
         fpn_features = []
+        # Decoder part
         for i, (decoder, up, enc_skip, fpn) in enumerate(zip(self.decoders, self.ups, encs[::-1], self.fpn)):
             x = up(x)
             x = x + enc_skip
             x = decoder(x)
             print(f"Decoder {i} output shape: {x.shape}")
-            if i < len(self.fpn):
-                try:
-                    fpn_features.append(fpn(x))
-                except RuntimeError as e:
-                    print(f"Error in FPNBlock {i}: {e}")
-                    print(f"Input shape: {x.shape}")
-                    print(f"Expected input channels: {fpn.lateral.in_channels}")
-                    raise
+            try:
+                fpn_features.append(fpn(x))
+            except RuntimeError as e:
+                print(f"Error in FPNBlock {i}: {e}")
+                print(f"Input shape: {x.shape}")
+                raise
         fused = sum(fpn_features)
         x = self.ending(x + fused)
         return x[:, :, :H, :W]
-
+    
     def check_image_size(self, x):
         _, _, h, w = x.size()
         mod_pad_h = (self.padder_size - h % self.padder_size) % self.padder_size
