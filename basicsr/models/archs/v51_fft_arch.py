@@ -203,7 +203,8 @@ class NAFNet(nn.Module):
             self.ups.append(nn.Sequential(nn.Conv2d(chan, chan * 2, 1, bias=False), nn.PixelShuffle(2)))
             chan = chan // 2
             self.decoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
-        self.fpn = nn.ModuleList([FPNBlock(width * 2**i, width) for i in range(len(enc_blk_nums))])
+        self.fpn = nn.ModuleList([FPNBlock(chan, chan) for _ in range(len(enc_blk_nums))])
+        # self.fpn = nn.ModuleList([FPNBlock(width * 2**i, width) for i in range(len(enc_blk_nums))])
         self.padder_size = 2 ** len(self.encoders)
 
     def forward(self, inp):
