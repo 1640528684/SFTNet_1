@@ -175,6 +175,7 @@ class NAFBlock(nn.Module):
 class FPNBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(FPNBlock, self).__init__()
+        # Ensure the lateral convolution matches the input channels
         self.lateral = nn.Conv2d(in_channels, out_channels, kernel_size=1)
         self.smooth = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
 
@@ -203,8 +204,10 @@ class NAFNet(nn.Module):
             self.ups.append(nn.Sequential(nn.Conv2d(chan, chan * 2, 1, bias=False), nn.PixelShuffle(2)))
             chan = chan // 2
             self.decoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
-        self.fpn = nn.ModuleList([FPNBlock(chan, chan) for _ in range(len(enc_blk_nums))])
-        # self.fpn = nn.ModuleList([FPNBlock(width * 2**i, width) for i in range(len(enc_blk_nums))])
+        # Correct the FPNBlock initialization to match the channels
+        fpn_channels = [width * 2**i for i in range(len(enc_blk_nums))]
+        self.fpn = nn.ModuleList([FPNBlock(chan, width) for chan in fpn_channels])
+
         self.padder_size = 2 ** len(self.encoders)
 
     def forward(self, inp):
