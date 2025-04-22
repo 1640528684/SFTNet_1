@@ -187,7 +187,7 @@ class FPNBlock(nn.Module):
         return x
 
 class NAFNet(nn.Module):
-    def __init__(self, img_channel=3, width=32, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[]):
+    def __init__(self, img_channel=3, width=64, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[]):
         super().__init__()
         print(f"Received enc_blk_nums: {enc_blk_nums}")  # 调试：确认参数传递
         self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1)
@@ -198,23 +198,32 @@ class NAFNet(nn.Module):
         self.ups = nn.ModuleList()
         self.downs = nn.ModuleList()
         chan = width
-
+        
         print(f"enc_blk_nums length: {len(enc_blk_nums)}")  # 调试：确认列表长度
+        
+        # 初始化编码器和下采样模块
         for num in enc_blk_nums:
             self.encoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
             self.downs.append(nn.Conv2d(chan, 2 * chan, 2, 2))
             chan = chan * 2
+        
+         # 中间块
         self.middle_blks = nn.Sequential(*[TransformerBlock(chan) for _ in range(middle_blk_num)])
+        
+        # 初始化解码器和上采样模块
         for num in dec_blk_nums:
             self.ups.append(nn.Sequential(nn.Conv2d(chan, chan * 2, 1), nn.PixelShuffle(2)))
             chan = chan // 2
             self.decoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
-        # 确保 FPNBlock 的输入通道匹配
-        fpn_channels = [width * 2**i for i in range(len(enc_blk_nums))]
+        
+         # 修正 FPN 的输入通道计算
+        fpn_channels = [width * (2 ** (len(enc_blk_nums) - 1 - i)) for i in range(len(enc_blk_nums))]
+        print(f"Corrected fpn_channels: {fpn_channels}")  # 调试：验证通道数
+        
         self.fpn = nn.ModuleList([FPNBlock(in_chan, width) for in_chan in fpn_channels])
         self.padder_size = 2 ** len(self.encoders)
 
-        print(f"encoders length: {len(self.encoders)}, downs length: {len(self.downs)}")  # 调试：确认模块数量
+        #print(f"encoders length: {len(self.encoders)}, downs length: {len(self.downs)}")  # 调试：确认模块数量
 
     def forward(self, inp):
         B, C, H, W = inp.shape
