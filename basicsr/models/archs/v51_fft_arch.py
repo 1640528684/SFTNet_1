@@ -206,7 +206,7 @@ class NAFNet(nn.Module):
             self.decoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
         # Correct the FPNBlock initialization to match the channels
         fpn_channels = [width * 2**i for i in range(len(enc_blk_nums))]
-        self.fpn = nn.ModuleList([FPNBlock(chan, width) for chan in fpn_channels])
+        self.fpn = nn.ModuleList([FPNBlock(in_chan, width) for in_chan in fpn_channels])
 
         self.padder_size = 2 ** len(self.encoders)
 
