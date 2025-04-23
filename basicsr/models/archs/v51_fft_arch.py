@@ -187,81 +187,98 @@ class FPNBlock(nn.Module):
         return x
 
 class NAFNet(nn.Module):
-    def __init__(self, img_channel=3, width=64, middle_blk_num=1, enc_blk_nums=[], dec_blk_nums=[]):
+    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1,1,1,28], dec_blk_nums=[1,1,1,1]):
         super().__init__()
-        print(f"Received enc_blk_nums: {enc_blk_nums}")  # 调试：确认参数传递
-        self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1)
-        self.ending = nn.Conv2d(in_channels=width, out_channels=img_channel, kernel_size=3, padding=1)
+        self.width = width
         self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
-        self.middle_blks = nn.ModuleList()
         self.ups = nn.ModuleList()
-        self.downs = nn.ModuleList()
-        chan = width
+        self.fpn = nn.ModuleList()
+        self.channel_adapters = nn.ModuleList()  # 新增：通道适配器
         
-        print(f"enc_blk_nums length: {len(enc_blk_nums)}")  # 调试：确认列表长度
+        # 初始化编码器
+        for i in range(len(enc_blk_nums)):
+            in_channels = img_channel if i ==0 else width * (2**(i-1))
+            out_channels = width * (2**i)
+            self.encoders.append(
+                nn.Sequential(
+                    *[nn.Conv2d(in_channels, out_channels, 3, padding=1),
+                      nn.ReLU(),
+                      *[nn.Conv2d(out_channels, out_channels, 3, padding=1) for _ in range(enc_blk_nums[i]-1)],
+                      nn.ReLU()]
+                )
+            )
         
-        # 初始化编码器和下采样模块
-        for num in enc_blk_nums:
-            self.encoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
-            self.downs.append(nn.Conv2d(chan, 2 * chan, 2, 2))
-            chan = chan * 2
+        # 初始化解码器
+        for i in range(len(dec_blk_nums)):
+            in_channels = width * (2**(len(enc_blk_nums)-i-1))
+            out_channels = width * (2**(len(enc_blk_nums)-i-2))
+            self.decoders.append(
+                nn.Sequential(
+                    *[nn.Conv2d(in_channels, out_channels, 3, padding=1),
+                      nn.ReLU(),
+                      *[nn.Conv2d(out_channels, out_channels, 3, padding=1) for _ in range(dec_blk_nums[i]-1)],
+                      nn.ReLU()]
+                )
+            )
+            self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
         
-         # 中间块
-        self.middle_blks = nn.Sequential(*[TransformerBlock(chan) for _ in range(middle_blk_num)])
+        # 初始化FPN模块
+        fpn_channels = [width * (2**i) for i in reversed(range(len(enc_blk_nums)))]
+        for c in fpn_channels:
+            self.fpn.append(FPNBlock(c, self.width))  # 输出通道统一为width（如64）
         
-        # 初始化解码器和上采样模块
-        for num in dec_blk_nums:
-            self.ups.append(nn.Sequential(nn.Conv2d(chan, chan * 2, 1), nn.PixelShuffle(2)))
-            chan = chan // 2
-            self.decoders.append(nn.Sequential(*[TransformerBlock(chan) for _ in range(num)]))
-        
-         # 修正 FPN 的输入通道计算
-        fpn_channels = [width * (2 ** (len(enc_blk_nums) - 1 - i)) for i in range(len(enc_blk_nums))]
-        print(f"Corrected fpn_channels: {fpn_channels}")  # 调试：验证通道数
-        
-        self.fpn = nn.ModuleList([FPNBlock(in_chan, width) for in_chan in fpn_channels])
-        self.padder_size = 2 ** len(self.encoders)
+        # 初始化通道适配器（关键修改点）
+        # 假设编码器输出的通道数为 [64, 128, 256, 512]
+        enc_channels = [width * (2**i) for i in range(len(enc_blk_nums))]
+        for i in range(len(enc_channels)):
+            # 调整每个enc_skip的通道数为对应的解码器输入通道数
+            # 例如，解码器第0层的输入通道为512（假设enc_channels[-1]=512）
+            target_channels = width * (2**(len(enc_blk_nums)-i-1))
+            self.channel_adapters.append(
+                nn.Conv2d(enc_channels[i], target_channels, kernel_size=1)  # 1x1卷积调整通道
+            )
 
-        #print(f"encoders length: {len(self.encoders)}, downs length: {len(self.downs)}")  # 调试：确认模块数量
-
-    def forward(self, inp):
-        B, C, H, W = inp.shape
-        inp = self.check_image_size(inp)
-        x = self.intro(inp)
+    def forward(self, x):
         encs = []
-        i = -1  # 初始化 i，避免未定义
-        # Encoder part
-        for i, (encoder, down) in enumerate(zip(self.encoders, self.downs)):
+        # 编码器前向传播
+        for encoder in self.encoders:
             x = encoder(x)
-            print(f"Encoder {i} output shape: {x.shape}")
             encs.append(x)
-            x = down(x)
-            print(f"Downsample {i} output shape: {x.shape}")
-        x = self.middle_blks(x)
-        print(f"Middle blocks output shape: {x.shape}")
+            # 下采样（假设每个编码器后接下采样）
+            x = F.max_pool2d(x, 2)
+        
+        # 中间块（假设为简单卷积）
+        x = self.middle_block(x) if hasattr(self, 'middle_block') else x
+        
+        # 解码器和FPN融合
         fpn_features = []
-        # Decoder part
-        for i, (decoder, up, enc_skip, fpn) in enumerate(zip(self.decoders, self.ups, encs[::-1], self.fpn)):
+        for i, (decoder, up, fpn_block) in enumerate(zip(
+            self.decoders, self.ups, self.fpn
+        )):
+            # 取对应的编码器输出（逆序）
+            enc_skip = encs[-i-1]
+            
+            # 调整enc_skip的通道数（关键修改点）
+            enc_skip = self.channel_adapters[i](enc_skip)
+            
+            # 空间尺寸对齐（如果需要）
+            target_size = x.size()[2:]
+            enc_skip = F.interpolate(enc_skip, size=target_size, mode='bilinear', align_corners=False)
+            
+            # 跳跃连接
             x = up(x)
-            x = x + enc_skip
+            x = x + enc_skip  # 通道数已匹配
+            
             x = decoder(x)
-            # 上采样到目标尺寸（如 256x256）
-            target_size = (256, 256)
-            if x.shape[2:] != target_size:
-                x = F.interpolate(x, size=target_size, mode='bilinear', align_corners=False)
-            # 应用 FPNBlock 并收集特征
-            fpn_out = fpn(x)
+            # 应用FPNBlock并收集特征
+            fpn_out = fpn_block(x)
             fpn_features.append(fpn_out)
         
-         # 验证所有特征图尺寸一致
-        print("FPN features sizes:")
-        for feat in fpn_features:
-            print(feat.shape)
-        # 融合特征
+        # 融合FPN特征
         fused = sum(fpn_features)
-        x = self.ending(x + fused)
-        return x[:, :, :H, :W]
+        x = x + fused
+        return x
     
     def check_image_size(self, x):
         _, _, h, w = x.size()
