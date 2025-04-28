@@ -280,9 +280,17 @@ class NAFNet(nn.Module):
             # 调整enc_skip的通道数（关键修改点）
             enc_skip = self.channel_adapters[len(encs) - i - 1](enc_skip)
             
+            # 打印调试信息
+            print(f"Before interpolation: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}")
+            
             # 空间尺寸对齐（如果需要）
             target_size = x.size()[2:]
             enc_skip = F.interpolate(enc_skip, size=target_size, mode='bilinear', align_corners=False)
+            
+            # 再次打印调试信息
+            print(f"After interpolation: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}")
+            # 检查尺寸是否匹配
+            assert x.shape[2:] == enc_skip.shape[2:], f"Size mismatch: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}"
             
             # 跳跃连接
             x = up(x)
