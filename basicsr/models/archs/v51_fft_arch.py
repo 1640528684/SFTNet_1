@@ -299,12 +299,11 @@ class NAFNet(nn.Module):
             
             # 跳跃连接
             x = up(x)
-            # 再次检查尺寸
-            if x.size(2) != enc_skip.size(2) or x.size(3) != enc_skip.size(3):
-                x = F.interpolate(x, size=(enc_skip.size(2), enc_skip.size(3)), mode='bilinear', align_corners=False)
-            # 确保所有维度都匹配
-            assert x.shape == enc_skip.shape, f"Shape mismatch: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}"
             x = x + enc_skip  # 通道数已匹配
+            # 检查输入通道数是否与解码器的卷积层期望的输入通道数一致
+            if x.shape[1] != decoder[0].in_channels:
+                print(f"Input channels mismatch with decoder. Expected {decoder[0].in_channels}, got {x.shape[1]}. Adjusting input channels.")
+                x = nn.Conv2d(x.shape[1], decoder[0].in_channels, kernel_size=1).to(x.device)(x)
             x = decoder(x)
             # 检查输入通道数是否与FPNBlock的lateral层期望的通道数一致
             if x.shape[1] != fpn_block.lateral.in_channels:
