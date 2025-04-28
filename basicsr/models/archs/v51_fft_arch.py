@@ -298,6 +298,9 @@ class NAFNet(nn.Module):
             
             # 跳跃连接
             x = up(x)
+            # 再次检查尺寸
+            if x.size(2) != enc_skip.size(2) or x.size(3) != enc_skip.size(3):
+                x = F.interpolate(x, size=(enc_skip.size(2), enc_skip.size(3)), mode='bilinear', align_corners=False)
             x = x + enc_skip  # 通道数已匹配
             
             x = decoder(x)
