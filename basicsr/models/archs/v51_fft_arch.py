@@ -305,14 +305,21 @@ class NAFNet(nn.Module):
             # 跳跃连接
             x = up(x)
             # 再次检查空间尺寸是否匹配
-            if x.shape[2:] != enc_skip.shape[2:]:
-                print(f"Spatial size mismatch detected. x size: {x.shape[2:]}, enc_skip size: {enc_skip.shape[2:]}. Adjusting enc_skip size.")
-                enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear', align_corners=False)
+            # if x.shape[2:] != enc_skip.shape[2:]:
+            #     print(f"Spatial size mismatch detected. x size: {x.shape[2:]}, enc_skip size: {enc_skip.shape[2:]}. Adjusting enc_skip size.")
+            #     enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear', align_corners=False)
             x = x + enc_skip  # 通道数已匹配
             x = decoder(x)
             # 应用FPNBlock并收集特征
             fpn_out = fpn_block(x)
             fpn_features.append(fpn_out)
+            
+        # 统一fpn_features中所有张量的尺寸
+        max_size = [max([f.size(2) for f in fpn_features]), max([f.size(3) for f in fpn_features])]
+        resized_fpn_features = []
+        for f in fpn_features:
+            resized_f = F.interpolate(f, size=max_size, mode='bilinear', align_corners=False)
+            resized_fpn_features.append(resized_f)
         
         # 融合FPN特征
         fused = sum(fpn_features)
