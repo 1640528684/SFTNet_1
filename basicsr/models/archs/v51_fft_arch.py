@@ -222,7 +222,12 @@ class NAFNet(nn.Module):
         # 初始化解码器
         for i in range(len(dec_blk_nums)):
             in_channels = width * (2 ** (len(enc_blk_nums)-i-1))
-            out_channels = width * (2 ** (len(enc_blk_nums)-i-2))
+            #out_channels = width * (2 ** (len(enc_blk_nums)-i-2))
+            # 避免 out_channels 为负数或零
+            if len(enc_blk_nums) - i - 2 < 0:
+                out_channels = width
+            else:
+                out_channels = width * (2 ** (len(enc_blk_nums)-i-2))
             # 检查 in_channels 和 out_channels 是否为有效的整数
             assert isinstance(in_channels, int) and isinstance(out_channels, int), f"Invalid channel numbers: in_channels={in_channels}, out_channels={out_channels}"
             print(f"Decoder {i}: in_channels={in_channels}, out_channels={out_channels}")
@@ -245,6 +250,9 @@ class NAFNet(nn.Module):
         enc_channels = [width * (2**i) for i in range(len(enc_blk_nums))]
         for i in range(len(enc_channels)):
             target_channels = width * (2**(len(enc_blk_nums)-i-1))
+            # 检查 enc_channels[i] 和 target_channels 是否为有效的整数
+            assert isinstance(enc_channels[i], int) and isinstance(target_channels, int), f"Invalid channel numbers: enc_channels[i]={enc_channels[i]}, target_channels={target_channels}"
+            print(f"Channel Adapter {i}: enc_channels[i]={enc_channels[i]}, target_channels={target_channels}")
             self.channel_adapters.append(
                 nn.Conv2d(enc_channels[i], target_channels, kernel_size=1)
             )
