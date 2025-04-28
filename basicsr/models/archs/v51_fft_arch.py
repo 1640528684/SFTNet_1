@@ -299,9 +299,11 @@ class NAFNet(nn.Module):
             
             # 跳跃连接
             x = up(x)
-            # # 再次检查尺寸
-            # if x.size(2) != enc_skip.size(2) or x.size(3) != enc_skip.size(3):
-            #     x = F.interpolate(x, size=(enc_skip.size(2), enc_skip.size(3)), mode='bilinear', align_corners=False)
+            # 再次检查尺寸
+            if x.size(2) != enc_skip.size(2) or x.size(3) != enc_skip.size(3):
+                x = F.interpolate(x, size=(enc_skip.size(2), enc_skip.size(3)), mode='bilinear', align_corners=False)
+            # 确保所有维度都匹配
+            assert x.shape == enc_skip.shape, f"Shape mismatch: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}"
             x = x + enc_skip  # 通道数已匹配
             x = decoder(x)
             # 应用FPNBlock并收集特征
