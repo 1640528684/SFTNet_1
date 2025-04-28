@@ -306,6 +306,10 @@ class NAFNet(nn.Module):
             assert x.shape == enc_skip.shape, f"Shape mismatch: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}"
             x = x + enc_skip  # 通道数已匹配
             x = decoder(x)
+            # 检查输入通道数是否与FPNBlock的lateral层期望的通道数一致
+            if x.shape[1] != fpn_block.lateral.in_channels:
+                print(f"Input channels mismatch with FPNBlock lateral layer. Expected {fpn_block.lateral.in_channels}, got {x.shape[1]}. Adjusting input channels.")
+                x = nn.Conv2d(x.shape[1], fpn_block.lateral.in_channels, kernel_size=1).to(x.device)(x)
             # 应用FPNBlock并收集特征
             fpn_out = fpn_block(x)
             fpn_features.append(fpn_out)
