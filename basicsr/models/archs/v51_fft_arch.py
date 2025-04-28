@@ -200,16 +200,16 @@ class NAFNet(nn.Module):
         
         # 初始化编码器
         for i in range(len(enc_blk_nums)):
-            in_channels = img_channel if i ==0 else width * (2**(i-1))
-            out_channels = width * (2**i)
-            self.encoders.append(
-                nn.Sequential(
-                    *[nn.Conv2d(in_channels, out_channels, 3, padding=1),
-                      nn.ReLU(),
-                      *[nn.Conv2d(out_channels, out_channels, 3, padding=1) for _ in range(enc_blk_nums[i]-1)],
-                      nn.ReLU()]
-                )
-            )
+            in_channels = img_channel if i == 0 else width * (2 ** (i-1))
+            out_channels = width * (2 ** i)
+            encoder_layers = [
+                nn.Conv2d(in_channels, out_channels, 3, padding=1),
+                nn.ReLU()
+            ]
+            for _ in range(enc_blk_nums[i] - 1):
+                encoder_layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
+            encoder_layers.append(nn.ReLU())
+            self.encoders.append(nn.Sequential(*encoder_layers))
         
         # 初始化中间块（根据编码器最后一层输出通道计算）
         in_channels_middle = width * (2 ** (len(enc_blk_nums) - 1))
@@ -218,34 +218,29 @@ class NAFNet(nn.Module):
         
         # 初始化解码器
         for i in range(len(dec_blk_nums)):
-            in_channels = width * (2**(len(enc_blk_nums)-i-1))
-            out_channels = width * (2**(len(enc_blk_nums)-i-2))
-            self.decoders.append(
-                nn.Sequential(
-                    *[nn.Conv2d(in_channels, out_channels, 3, padding=1),
-                      nn.ReLU(),
-                      *[nn.Conv2d(out_channels, out_channels, 3, padding=1) for _ in range(dec_blk_nums[i]-1)],
-                      nn.ReLU()]
-                )
-            )
+            in_channels = width * (2 ** (len(enc_blk_nums)-i-1))
+            out_channels = width * (2 ** (len(enc_blk_nums)-i-2))
+            decoder_layers = [
+                nn.Conv2d(in_channels, out_channels, 3, padding=1),
+                nn.ReLU()
+            ]
+            for _ in range(dec_blk_nums[i] - 1):
+                decoder_layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
+            decoder_layers.append(nn.ReLU())
+            self.decoders.append(nn.Sequential(*decoder_layers))
             self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
-        
-        
         
         # 初始化FPN模块
         fpn_channels = [width * (2**i) for i in reversed(range(len(enc_blk_nums)))]
         for c in fpn_channels:
-            self.fpn.append(FPNBlock(c, self.width))  # 输出通道统一为width（如64）
+            self.fpn.append(FPNBlock(c, self.width))
         
-        # 初始化通道适配器（关键修改点）
-        # 假设编码器输出的通道数为 [64, 128, 256, 512]
+        # 初始化通道适配器
         enc_channels = [width * (2**i) for i in range(len(enc_blk_nums))]
         for i in range(len(enc_channels)):
-            # 调整每个enc_skip的通道数为对应的解码器输入通道数
-            # 例如，解码器第0层的输入通道为512（假设enc_channels[-1]=512）
             target_channels = width * (2**(len(enc_blk_nums)-i-1))
             self.channel_adapters.append(
-                nn.Conv2d(enc_channels[i], target_channels, kernel_size=1)  # 1x1卷积调整通道
+                nn.Conv2d(enc_channels[i], target_channels, kernel_size=1)
             )
 
     def forward(self, x):
@@ -257,7 +252,7 @@ class NAFNet(nn.Module):
             # 下采样（假设每个编码器后接下采样）
             x = F.max_pool2d(x, 2)
         
-        # 中间块处理（新增）
+        # 中间块处理
         for blk in self.middle_blocks:
             x = blk(x)
         
