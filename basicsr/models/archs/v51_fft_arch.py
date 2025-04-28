@@ -304,10 +304,11 @@ class NAFNet(nn.Module):
             
             # 跳跃连接
             x = up(x)
-            # 再次检查空间尺寸是否匹配
-            # if x.shape[2:] != enc_skip.shape[2:]:
-            #     print(f"Spatial size mismatch detected. x size: {x.shape[2:]}, enc_skip size: {enc_skip.shape[2:]}. Adjusting enc_skip size.")
-            #     enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear', align_corners=False)
+            #再次检查空间尺寸是否匹配
+            if x.shape[2:] != enc_skip.shape[2:]:
+                print(f"Spatial size mismatch detected. x size: {x.shape[2:]}, enc_skip size: {enc_skip.shape[2:]}. Adjusting enc_skip size.")
+                enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear', align_corners=False)
+                print(f"Size adjusted: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}")
             x = x + enc_skip  # 通道数已匹配
             x = decoder(x)
             # 应用FPNBlock并收集特征
