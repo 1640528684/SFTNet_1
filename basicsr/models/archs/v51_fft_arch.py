@@ -338,6 +338,9 @@ class v51fftLocal(Local_Base, NAFNet):
         self.eval()
         with torch.no_grad():
             self.convert(base_size=base_size, train_size=train_size, fast_imp=fast_imp)
+        # 确保 v51fftLocal 有 final_conv 属性
+        if not hasattr(self, 'final_conv'):
+            self.final_conv = nn.Conv2d(self.width, 3, kernel_size=3, padding=1)
             
 if __name__ == '__main__':
     img_channel = 3
