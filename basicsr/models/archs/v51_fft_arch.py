@@ -318,6 +318,8 @@ class NAFNet(nn.Module):
         # 融合FPN特征
         fused = sum(resized_fpn_features)
         x = x + fused
+        # 新增：应用最终卷积层，确保输出通道数与图像通道数一致
+        x = self.final_conv(x)
         return x
     
     def check_image_size(self, x):
