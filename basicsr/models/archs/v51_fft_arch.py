@@ -262,11 +262,11 @@ class NAFNet(nn.Module):
             encs.append(x)
             # 下采样（假设每个编码器后接下采样）
             x = F.max_pool2d(x, 2)
-        
+    
         # 中间块处理
         for blk in self.middle_blocks:
             x = blk(x)
-        
+    
         # 解码器和FPN融合
         fpn_features = []
         for i, (decoder, up, fpn_block) in enumerate(zip(
@@ -274,30 +274,30 @@ class NAFNet(nn.Module):
         )):
             # 取对应的编码器输出（逆序）
             enc_skip = encs[-i-1]
-            
+          
             # 调整enc_skip的通道数（关键修改点）
             enc_skip = self.channel_adapters[len(encs) - i - 1](enc_skip)
-            
+        
             # 打印调试信息
             print(f"Before interpolation: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}")
-            
+        
             # 空间尺寸对齐
             target_size = x.size()[2:]
             enc_skip = F.interpolate(enc_skip, size=target_size, mode='bilinear', align_corners=False)
-            
+        
             # 再次打印调试信息
             print(f"After interpolation: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}")
             # 检查尺寸是否匹配
             assert x.shape[2:] == enc_skip.shape[2:], f"Size mismatch: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}"
-            
+        
             # 确保通道数匹配
             if x.shape[1] != enc_skip.shape[1]:
                 print(f"Channel mismatch detected. x channels: {x.shape[1]}, enc_skip channels: {enc_skip.shape[1]}. Adjusting enc_skip channels.")
                 enc_skip = nn.Conv2d(enc_skip.shape[1], x.shape[1], kernel_size=1).to(enc_skip.device)(enc_skip)
-            
+        
             # 跳跃连接
             x = up(x)
-            #再次检查空间尺寸是否匹配
+            # 再次检查空间尺寸是否匹配
             if x.shape[2:] != enc_skip.shape[2:]:
                 print(f"Spatial size mismatch detected. x size: {x.shape[2:]}, enc_skip size: {enc_skip.shape[2:]}. Adjusting enc_skip size.")
                 enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear', align_corners=False)
@@ -307,16 +307,16 @@ class NAFNet(nn.Module):
             # 应用FPNBlock并收集特征
             fpn_out = fpn_block(x)
             fpn_features.append(fpn_out)
-            
+    
         # 统一fpn_features中所有张量的尺寸
-        max_size = [max([f.size(2) for f in fpn_features]), max([f.size(3) for f in fpn_features])]
+        max_size = (max([f.size(2) for f in fpn_features]), max([f.size(3) for f in fpn_features]))
         resized_fpn_features = []
         for f in fpn_features:
             resized_f = F.interpolate(f, size=max_size, mode='bilinear', align_corners=False)
             resized_fpn_features.append(resized_f)
-        
+    
         # 融合FPN特征
-        fused = sum(fpn_features)
+        fused = sum(resized_fpn_features)
         x = x + fused
         return x
     
