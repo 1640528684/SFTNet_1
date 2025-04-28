@@ -304,15 +304,7 @@ class NAFNet(nn.Module):
                 print(f"Spatial size mismatch detected. x size: {x.shape[2:]}, enc_skip size: {enc_skip.shape[2:]}. Adjusting enc_skip size.")
                 enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear', align_corners=False)
             x = x + enc_skip  # 通道数已匹配
-            # 检查输入通道数是否与解码器的卷积层期望的输入通道数一致
-            if x.shape[1] != decoder[0].in_channels:
-                print(f"Input channels mismatch with decoder. Expected {decoder[0].in_channels}, got {x.shape[1]}. Adjusting input channels.")
-                x = nn.Conv2d(x.shape[1], decoder[0].in_channels, kernel_size=1).to(x.device)(x)
             x = decoder(x)
-            # 检查输入通道数是否与FPNBlock的lateral层期望的通道数一致
-            if x.shape[1] != fpn_block.lateral.in_channels:
-                print(f"Input channels mismatch with FPNBlock lateral layer. Expected {fpn_block.lateral.in_channels}, got {x.shape[1]}. Adjusting input channels.")
-                x = nn.Conv2d(x.shape[1], fpn_block.lateral.in_channels, kernel_size=1).to(x.device)(x)
             # 应用FPNBlock并收集特征
             fpn_out = fpn_block(x)
             fpn_features.append(fpn_out)
