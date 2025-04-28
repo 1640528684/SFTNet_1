@@ -222,17 +222,10 @@ class NAFNet(nn.Module):
         for _ in range(middle_blk_num):
             self.middle_blocks.append(NAFBlock(c=in_channels_middle))  # 使用实际通道数
         
-        # 初始化解码器
+         # 初始化解码器
         for i in range(len(dec_blk_nums)):
             in_channels = width * (2 ** (len(enc_blk_nums)-i-1))
-            #out_channels = width * (2 ** (len(enc_blk_nums)-i-2))
-            # 避免 out_channels 为负数或零
-            if len(enc_blk_nums) - i - 2 < 0:
-                out_channels = width
-            else:
-                out_channels = width * (2 ** (len(enc_blk_nums)-i-2))
-            # 检查 in_channels 和 out_channels 是否为有效的整数
-            #assert isinstance(in_channels, int) and isinstance(out_channels, int), f"Invalid channel numbers: in_channels={in_channels}, out_channels={out_channels}"
+            out_channels = width * (2 ** (len(enc_blk_nums)-i-2)) if i < len(dec_blk_nums)-1 else width
             print(f"Decoder {i}: in_channels={in_channels}, out_channels={out_channels}")
             decoder_layers = [
                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
