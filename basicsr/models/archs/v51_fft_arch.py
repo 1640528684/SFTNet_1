@@ -299,6 +299,10 @@ class NAFNet(nn.Module):
             
             # 跳跃连接
             x = up(x)
+            # 再次检查空间尺寸是否匹配
+            if x.shape[2:] != enc_skip.shape[2:]:
+                print(f"Spatial size mismatch detected. x size: {x.shape[2:]}, enc_skip size: {enc_skip.shape[2:]}. Adjusting enc_skip size.")
+                enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear', align_corners=False)
             x = x + enc_skip  # 通道数已匹配
             # 检查输入通道数是否与解码器的卷积层期望的输入通道数一致
             if x.shape[1] != decoder[0].in_channels:
