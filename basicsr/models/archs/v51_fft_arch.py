@@ -283,9 +283,13 @@ class NAFNet(nn.Module):
             # 打印调试信息
             print(f"Before interpolation: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}")
             
-            # 空间尺寸对齐（如果需要）
+            # 空间尺寸对齐
             target_size = x.size()[2:]
             enc_skip = F.interpolate(enc_skip, size=target_size, mode='bilinear', align_corners=False)
+            
+             # 再次检查并调整尺寸
+            if enc_skip.size(2) != x.size(2) or enc_skip.size(3) != x.size(3):
+                enc_skip = F.interpolate(enc_skip, size=(x.size(2), x.size(3)), mode='bilinear', align_corners=False)
             
             # 再次打印调试信息
             print(f"After interpolation: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}")
