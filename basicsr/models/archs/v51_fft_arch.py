@@ -287,14 +287,11 @@ class NAFNet(nn.Module):
             target_size = x.size()[2:]
             enc_skip = F.interpolate(enc_skip, size=target_size, mode='bilinear', align_corners=False)
             
-             # 再次检查并调整尺寸
-            if enc_skip.size(2) != x.size(2) or enc_skip.size(3) != x.size(3):
-                enc_skip = F.interpolate(enc_skip, size=(x.size(2), x.size(3)), mode='bilinear', align_corners=False)
-            
             # 再次打印调试信息
             print(f"After interpolation: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}")
             # 检查尺寸是否匹配
             assert x.shape[2:] == enc_skip.shape[2:], f"Size mismatch: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}"
+            assert x.shape[1] == enc_skip.shape[1], f"Channel mismatch: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}"
             
             # 跳跃连接
             x = up(x)
@@ -302,7 +299,6 @@ class NAFNet(nn.Module):
             if x.size(2) != enc_skip.size(2) or x.size(3) != enc_skip.size(3):
                 x = F.interpolate(x, size=(enc_skip.size(2), enc_skip.size(3)), mode='bilinear', align_corners=False)
             x = x + enc_skip  # 通道数已匹配
-            
             x = decoder(x)
             # 应用FPNBlock并收集特征
             fpn_out = fpn_block(x)
