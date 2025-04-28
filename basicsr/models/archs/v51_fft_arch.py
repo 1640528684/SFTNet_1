@@ -291,13 +291,17 @@ class NAFNet(nn.Module):
             print(f"After interpolation: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}")
             # 检查尺寸是否匹配
             assert x.shape[2:] == enc_skip.shape[2:], f"Size mismatch: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}"
-            assert x.shape[1] == enc_skip.shape[1], f"Channel mismatch: x shape = {x.shape}, enc_skip shape = {enc_skip.shape}"
+            
+            # 确保通道数匹配
+            if x.shape[1] != enc_skip.shape[1]:
+                print(f"Channel mismatch detected. x channels: {x.shape[1]}, enc_skip channels: {enc_skip.shape[1]}. Adjusting enc_skip channels.")
+                enc_skip = nn.Conv2d(enc_skip.shape[1], x.shape[1], kernel_size=1).to(enc_skip.device)(enc_skip)
             
             # 跳跃连接
             x = up(x)
-            # 再次检查尺寸
-            if x.size(2) != enc_skip.size(2) or x.size(3) != enc_skip.size(3):
-                x = F.interpolate(x, size=(enc_skip.size(2), enc_skip.size(3)), mode='bilinear', align_corners=False)
+            # # 再次检查尺寸
+            # if x.size(2) != enc_skip.size(2) or x.size(3) != enc_skip.size(3):
+            #     x = F.interpolate(x, size=(enc_skip.size(2), enc_skip.size(3)), mode='bilinear', align_corners=False)
             x = x + enc_skip  # 通道数已匹配
             x = decoder(x)
             # 应用FPNBlock并收集特征
