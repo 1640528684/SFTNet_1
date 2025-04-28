@@ -15,8 +15,8 @@ datasets:
   train:
     name: gopro-train
     type: PairedImageDataset
-    dataroot_gt: ../NAFNet/datasets/GoPro/train/target
-    dataroot_lq: ../NAFNet/datasets/GoPro/train/input
+    dataroot_gt: /home/user/NAFNet/datasets/GoPro/train/target
+    dataroot_lq: /home/user/NAFNet/datasets/GoPro/train/input
 
     filename_tmpl: '{}'
     io_backend:
@@ -37,8 +37,8 @@ datasets:
   val:
     name: gopro-test
     type: PairedImageDataset
-    dataroot_gt: ../NAFNet/datasets/GoPro/test/target.lmdb
-    dataroot_lq: ../NAFNet/datasets/GoPro/test/input.lmdb
+    dataroot_gt: /home/user/NAFNet/datasets/GoPro/test/target.lmdb
+    dataroot_lq: /home/user/NAFNet/datasets/GoPro/test/input.lmdb
     io_backend:
       type: lmdb
 
