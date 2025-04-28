@@ -202,8 +202,6 @@ class NAFNet(nn.Module):
         for i in range(len(enc_blk_nums)):
             in_channels = img_channel if i == 0 else width * (2 ** (i-1))
             out_channels = width * (2 ** i)
-            # 检查 in_channels 和 out_channels 是否为有效的整数
-            assert isinstance(in_channels, int) and isinstance(out_channels, int), f"Invalid channel numbers: in_channels={in_channels}, out_channels={out_channels}"
             print(f"Encoder {i}: in_channels={in_channels}, out_channels={out_channels}")
             encoder_layers = [
                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
@@ -229,7 +227,7 @@ class NAFNet(nn.Module):
             else:
                 out_channels = width * (2 ** (len(enc_blk_nums)-i-2))
             # 检查 in_channels 和 out_channels 是否为有效的整数
-            assert isinstance(in_channels, int) and isinstance(out_channels, int), f"Invalid channel numbers: in_channels={in_channels}, out_channels={out_channels}"
+            #assert isinstance(in_channels, int) and isinstance(out_channels, int), f"Invalid channel numbers: in_channels={in_channels}, out_channels={out_channels}"
             print(f"Decoder {i}: in_channels={in_channels}, out_channels={out_channels}")
             decoder_layers = [
                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
@@ -244,6 +242,7 @@ class NAFNet(nn.Module):
         # 初始化FPN模块
         fpn_channels = [width * (2**i) for i in reversed(range(len(enc_blk_nums)))]
         for c in fpn_channels:
+            print(f"Initializing FPNBlock with in_channels={c}, out_channels={self.width}")
             self.fpn.append(FPNBlock(c, self.width))
         
         # 初始化通道适配器
@@ -251,7 +250,7 @@ class NAFNet(nn.Module):
         for i in range(len(enc_channels)):
             target_channels = width * (2**(len(enc_blk_nums)-i-1))
             # 检查 enc_channels[i] 和 target_channels 是否为有效的整数
-            assert isinstance(enc_channels[i], int) and isinstance(target_channels, int), f"Invalid channel numbers: enc_channels[i]={enc_channels[i]}, target_channels={target_channels}"
+            #assert isinstance(enc_channels[i], int) and isinstance(target_channels, int), f"Invalid channel numbers: enc_channels[i]={enc_channels[i]}, target_channels={target_channels}"
             print(f"Channel Adapter {i}: enc_channels[i]={enc_channels[i]}, target_channels={target_channels}")
             self.channel_adapters.append(
                 nn.Conv2d(enc_channels[i], target_channels, kernel_size=1)
@@ -279,7 +278,7 @@ class NAFNet(nn.Module):
             enc_skip = encs[-i-1]
             
             # 调整enc_skip的通道数（关键修改点）
-            enc_skip = self.channel_adapters[i](enc_skip)
+            enc_skip = self.channel_adapters[len(encs) - i - 1](enc_skip)
             
             # 空间尺寸对齐（如果需要）
             target_size = x.size()[2:]
