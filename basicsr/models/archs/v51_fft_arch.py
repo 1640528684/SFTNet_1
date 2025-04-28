@@ -202,6 +202,9 @@ class NAFNet(nn.Module):
         for i in range(len(enc_blk_nums)):
             in_channels = img_channel if i == 0 else width * (2 ** (i-1))
             out_channels = width * (2 ** i)
+            # 检查 in_channels 和 out_channels 是否为有效的整数
+            assert isinstance(in_channels, int) and isinstance(out_channels, int), f"Invalid channel numbers: in_channels={in_channels}, out_channels={out_channels}"
+            print(f"Encoder {i}: in_channels={in_channels}, out_channels={out_channels}")
             encoder_layers = [
                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
                 nn.ReLU()
@@ -220,6 +223,9 @@ class NAFNet(nn.Module):
         for i in range(len(dec_blk_nums)):
             in_channels = width * (2 ** (len(enc_blk_nums)-i-1))
             out_channels = width * (2 ** (len(enc_blk_nums)-i-2))
+            # 检查 in_channels 和 out_channels 是否为有效的整数
+            assert isinstance(in_channels, int) and isinstance(out_channels, int), f"Invalid channel numbers: in_channels={in_channels}, out_channels={out_channels}"
+            print(f"Decoder {i}: in_channels={in_channels}, out_channels={out_channels}")
             decoder_layers = [
                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
                 nn.ReLU()
