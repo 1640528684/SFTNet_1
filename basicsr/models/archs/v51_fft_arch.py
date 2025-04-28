@@ -182,6 +182,11 @@ class FPNBlock(nn.Module):
 
     def forward(self, x):
         print(f"FPNBlock input shape: {x.shape}, lateral in_channels: {self.lateral.in_channels}")
+        # 检查输入通道数是否匹配
+        if x.shape[1] != self.lateral.in_channels:
+            print(f"Channel mismatch detected in FPNBlock. Expected {self.lateral.in_channels} channels, but got {x.shape[1]} channels. Adjusting input channels.")
+            # 动态调整输入通道数
+            self.lateral = nn.Conv2d(x.shape[1], self.lateral.out_channels, kernel_size=1).to(x.device)
         x = self.lateral(x)
         x = self.smooth(x)
         return x
