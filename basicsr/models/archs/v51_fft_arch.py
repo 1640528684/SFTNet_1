@@ -187,7 +187,7 @@ class FPNBlock(nn.Module):
         return x
 
 class NAFNet(nn.Module):
-    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1,1,1,28], dec_blk_nums=[1,1,1,1]):
+    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1,1,1,28], middle_blk_num=1, dec_blk_nums=[1,1,1,1]):
         super().__init__()
         self.width = width
         self.encoders = nn.ModuleList()
@@ -195,6 +195,8 @@ class NAFNet(nn.Module):
         self.ups = nn.ModuleList()
         self.fpn = nn.ModuleList()
         self.channel_adapters = nn.ModuleList()  # 新增：通道适配器
+        #self.middle_blk_num = middle_blk_num  # 新增属性
+        self.middle_blocks = nn.ModuleList()  # 新增中间块列表
         
         # 初始化编码器
         for i in range(len(enc_blk_nums)):
@@ -209,6 +211,11 @@ class NAFNet(nn.Module):
                 )
             )
         
+        # 初始化中间块（根据编码器最后一层输出通道计算）
+        in_channels_middle = width * (2 ** (len(enc_blk_nums) - 1))
+        for _ in range(middle_blk_num):
+            self.middle_blocks.append(NAFBlock(c=in_channels_middle))  # 使用实际通道数
+        
         # 初始化解码器
         for i in range(len(dec_blk_nums)):
             in_channels = width * (2**(len(enc_blk_nums)-i-1))
@@ -222,6 +229,8 @@ class NAFNet(nn.Module):
                 )
             )
             self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+        
+        
         
         # 初始化FPN模块
         fpn_channels = [width * (2**i) for i in reversed(range(len(enc_blk_nums)))]
@@ -248,8 +257,9 @@ class NAFNet(nn.Module):
             # 下采样（假设每个编码器后接下采样）
             x = F.max_pool2d(x, 2)
         
-        # 中间块（假设为简单卷积）
-        x = self.middle_block(x) if hasattr(self, 'middle_block') else x
+        # 中间块处理（新增）
+        for blk in self.middle_blocks:
+            x = blk(x)
         
         # 解码器和FPN融合
         fpn_features = []
