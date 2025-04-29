@@ -44,6 +44,12 @@ class DFFN(nn.Module):
         hidden_features = int(dim * ffn_expansion_factor)
         self.patch_size = 8
         self.dim = dim
+        self.fft = nn.Parameter(torch.randn(
+            hidden_features * 2,
+            1, 1,
+            self.patch_size,
+            self.patch_size // 2 + 1  # 确保最后一维是 5
+        ))
         self.project_in = nn.Conv2d(dim, hidden_features * 2, kernel_size=1, bias=bias)
         self.dwconv = nn.Conv2d(hidden_features * 2, hidden_features * 2, kernel_size=3, stride=1, padding=1, groups=hidden_features * 2, bias=bias)
         self.fft = nn.Parameter(torch.randn(hidden_features * 2, 1, 1,
@@ -56,7 +62,7 @@ class DFFN(nn.Module):
         h, w = x.size(2), x.size(3)
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2',
                             p1=self.patch_size, p2=self.patch_size)
-        x_fft = torch.fft.fft2(x_patch)
+        x_fft = torch.fft.rfft2(x_patch)  # 使用实数傅里叶变换
 
         h_padded, w_padded = x.size(2), x.size(3)
         h_blocks = h_padded // self.patch_size
@@ -73,8 +79,8 @@ class DFFN(nn.Module):
             self.fft.size(3),
             self.fft.size(4)
         )
-        x_fft = x_fft * expanded_fft
-        x = torch.fft.ifft2(x_fft).real
+        x_fft = x_fft * expanded_fft  # 现在维度匹配
+        x = torch.fft.irfft2(x_fft)  # 反变换回空域
         x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)',
                       h=h_padded//self.patch_size, w=w_padded//self.patch_size, b=x.size(0))
         x = self.dwconv(x)
