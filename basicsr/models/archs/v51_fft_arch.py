@@ -62,14 +62,9 @@ class DFFN(nn.Module):
         h_blocks = h_padded // self.patch_size
         w_blocks = w_padded // self.patch_size
 
-        # 添加调试信息
-        print(f"h_padded: {h_padded}, w_padded: {w_padded}")
-        print(f"h_blocks: {h_blocks}, w_blocks: {w_blocks}")
-        print(f"x_fft shape: {x_fft.shape}")
-
-        # 断言检查
-        assert x_fft.shape[2] == h_blocks and x_fft.shape[3] == w_blocks, \
-            f"Block count mismatch: ({x_fft.shape[2]}, {x_fft.shape[3]}) vs ({h_blocks}, {w_blocks})"
+        # 正确断言：检查块内尺寸是否为 patch_size
+        assert x_fft.shape[2] == self.patch_size and x_fft.shape[3] == self.patch_size, \
+            f"Patch size mismatch: ({x_fft.shape[2]}, {x_fft.shape[3]}) vs {self.patch_size}"
 
         expanded_fft = self.fft.expand(
             self.fft.size(0),
