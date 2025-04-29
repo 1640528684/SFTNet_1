@@ -55,10 +55,18 @@ class DFFN(nn.Module):
     def forward(self, x):
         x = self.project_in(x)
         h, w = x.size(2), x.size(3)
-        x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2',
-                    p1=self.patch_size, p2=self.patch_size)
+        x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) p1 p2',
+                            p1=self.patch_size, p2=self.patch_size)
         x_fft = torch.fft.fft2(x_patch)
-        x_fft = x_fft * self.fft.expand(-1, h//self.patch_size, w//self.patch_size, -1, -1)
+        # 显式扩展 self.fft 到与 x_fft 相同的形状
+        expanded_fft = self.fft.expand(
+            self.fft.size(0),
+            h // self.patch_size,
+            w // self.patch_size,
+            self.fft.size(3),
+            self.fft.size(4)
+        )
+        x_fft = x_fft * expanded_fft
         x = torch.fft.ifft2(x_fft).real
         x = rearrange(x, '(b h w) p1 p2 -> b (p1 p2) (h w)',
                       h=h//self.patch_size, w=w//self.patch_size, b=x.size(0))
