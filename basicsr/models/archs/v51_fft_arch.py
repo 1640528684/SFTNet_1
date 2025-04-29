@@ -46,30 +46,34 @@ class DFFN(nn.Module):
         self.dim = dim
         self.project_in = nn.Conv2d(dim, hidden_features * 2, kernel_size=1, bias=bias)
         self.dwconv = nn.Conv2d(hidden_features * 2, hidden_features * 2, kernel_size=3, stride=1, padding=1, groups=hidden_features * 2, bias=bias)
-        # FFT 参数初始化
         self.fft = nn.Parameter(torch.randn(hidden_features * 2, 1, 1,
                                             self.patch_size, self.patch_size // 2 + 1))
-        nn.init.kaiming_uniform_(self.fft, a=math.sqrt(5))
         self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
 
     def forward(self, x):
         x = self.project_in(x)
         h, w = x.size(2), x.size(3)
-        x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) p1 p2',
+        # 添加 padding 对齐 patch_size
+        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
+        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
+        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h))
+        h_padded, w_padded = x.size(2), x.size(3)
+        # 正确的 rearrange 模式
+        x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2',
                             p1=self.patch_size, p2=self.patch_size)
+        print("x_patch shape:", x_patch.shape)  # 验证形状
         x_fft = torch.fft.fft2(x_patch)
-        # 显式扩展 self.fft 到与 x_fft 相同的形状
         expanded_fft = self.fft.expand(
             self.fft.size(0),
-            h // self.patch_size,
-            w // self.patch_size,
+            h_padded // self.patch_size,
+            w_padded // self.patch_size,
             self.fft.size(3),
             self.fft.size(4)
         )
         x_fft = x_fft * expanded_fft
         x = torch.fft.ifft2(x_fft).real
-        x = rearrange(x, '(b h w) p1 p2 -> b (p1 p2) (h w)',
-                      h=h//self.patch_size, w=w//self.patch_size, b=x.size(0))
+        x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)',
+                      h=h_padded//self.patch_size, w=w_padded//self.patch_size, b=x.size(0))
         x = self.dwconv(x)
         x1, x2 = x.chunk(2, dim=1)
         x = F.gelu(x1) * x2
