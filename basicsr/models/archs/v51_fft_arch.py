@@ -30,12 +30,13 @@ class SimpleGate(nn.Module):
     def forward(self, x):
         x1, x2 = x.chunk(2, dim=1)
         return self.norm(x1) * x2
-        # return x1 * x2
+
 
 class SimpleGate2(nn.Module):
     def forward(self, x):
         x1, x2 = x.chunk(2, dim=1)
         return x1 * x2
+
 
 class DFFN(nn.Module):
     def __init__(self, dim, ffn_expansion_factor, bias):
@@ -45,24 +46,22 @@ class DFFN(nn.Module):
         self.dim = dim
         self.project_in = nn.Conv2d(dim, hidden_features * 2, kernel_size=1, bias=bias)
         self.dwconv = nn.Conv2d(hidden_features * 2, hidden_features * 2, kernel_size=3, stride=1, padding=1, groups=hidden_features * 2, bias=bias)
-        #self.fft = nn.Parameter(torch.ones((hidden_features * 2, 1, 1, self.patch_size, self.patch_size // 2 + 1)))
-         # 修正FFT参数初始化
-        self.fft = nn.Parameter(torch.randn(hidden_features * 2, 1, 1, 
-                                           self.patch_size, self.patch_size // 2 + 1))
+        # FFT 参数初始化
+        self.fft = nn.Parameter(torch.randn(hidden_features * 2, 1, 1,
+                                            self.patch_size, self.patch_size // 2 + 1))
         nn.init.kaiming_uniform_(self.fft, a=math.sqrt(5))
         self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
 
     def forward(self, x):
         x = self.project_in(x)
-        # 修正patch分割逻辑
         h, w = x.size(2), x.size(3)
-        x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) p1 p2', 
-                           p1=self.patch_size, p2=self.patch_size)
+        x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) p1 p2',
+                            p1=self.patch_size, p2=self.patch_size)
         x_fft = torch.fft.fft2(x_patch)
         x_fft = x_fft * self.fft.expand(-1, h//self.patch_size, w//self.patch_size, -1, -1)
         x = torch.fft.ifft2(x_fft).real
-        x = rearrange(x, '(b h w) p1 p2 -> b (p1 p2) (h w)', 
-                     h=h//self.patch_size, w=w//self.patch_size, b=x.size(0))
+        x = rearrange(x, '(b h w) p1 p2 -> b (p1 p2) (h w)',
+                      h=h//self.patch_size, w=w//self.patch_size, b=x.size(0))
         x = self.dwconv(x)
         x1, x2 = x.chunk(2, dim=1)
         x = F.gelu(x1) * x2
@@ -73,8 +72,10 @@ class DFFN(nn.Module):
 def to_3d(x):
     return rearrange(x, 'b c h w -> b (h w) c')
 
+
 def to_4d(x, h, w):
     return rearrange(x, 'b (h w) c -> b c h w', h=h, w=w)
+
 
 class BiasFree_LayerNorm(nn.Module):
     def __init__(self, normalized_shape):
@@ -84,11 +85,11 @@ class BiasFree_LayerNorm(nn.Module):
         normalized_shape = torch.Size(normalized_shape)
         assert len(normalized_shape) == 1
         self.weight = nn.Parameter(torch.ones(normalized_shape))
-        self.normalized_shape = normalized_shape
 
     def forward(self, x):
         sigma = x.var(-1, keepdim=True, unbiased=False)
         return x / torch.sqrt(sigma + 1e-5) * self.weight
+
 
 class WithBias_LayerNorm(nn.Module):
     def __init__(self, normalized_shape):
@@ -99,12 +100,12 @@ class WithBias_LayerNorm(nn.Module):
         assert len(normalized_shape) == 1
         self.weight = nn.Parameter(torch.ones(normalized_shape))
         self.bias = nn.Parameter(torch.zeros(normalized_shape))
-        self.normalized_shape = normalized_shape
 
     def forward(self, x):
         mu = x.mean(-1, keepdim=True)
         sigma = x.var(-1, keepdim=True, unbiased=False)
         return (x - mu) / torch.sqrt(sigma + 1e-5) * self.weight + self.bias
+
 
 class LayerNorm(nn.Module):
     def __init__(self, dim, LayerNorm_type):
@@ -117,6 +118,7 @@ class LayerNorm(nn.Module):
     def forward(self, x):
         h, w = x.shape[-2:]
         return to_4d(self.body(to_3d(x)), h, w)
+
 
 class AttentionBlock(nn.Module):
     def __init__(self, dim):
@@ -132,11 +134,8 @@ class AttentionBlock(nn.Module):
         key = self.key(x).view(B, -1, H * W)
         value = self.value(x).view(B, -1, H * W)
         attention = self.softmax(torch.bmm(query, key))
-        # out = torch.bmm(value, attention.permute(0, 2, 1))
-        # out = out.view(B, C, H, W)
-        out = torch.bmm(value, attention.permute(0, 2, 1))
-        # return out
-        return out.view(B, C, H, W)
+        out = torch.bmm(value, attention.permute(0, 2, 1)).view(B, C, H, W)
+        return out
 
 class TransformerBlock(nn.Module):
     def __init__(self, dim, ffn_expansion_factor=1, bias=False, LayerNorm_type='WithBias', att=False):
@@ -151,61 +150,54 @@ class TransformerBlock(nn.Module):
         x = x + self.ffn(self.norm2(x))
         return x
 
-class NAFBlock(nn.Module):
-    def __init__(self, c, DW_Expand=2, FFN_Expand=2, drop_out_rate=0.):
-        super().__init__()
-        dw_channel = c * DW_Expand
-        self.conv1 = nn.Conv2d(c, dw_channel, 1, padding=0, bias=True)
-        self.conv2 = nn.Conv2d(dw_channel, dw_channel, 3, padding=1, groups=dw_channel, bias=True)
-        self.conv3 = nn.Conv2d(dw_channel // 2, c, 1, padding=0, bias=True)
-        c2wh = dict([(16, 224), (32, 112), (64, 56), (128, 28), (256, 14), (512, 7), (1024, 4)])
-        self.sca = MultiSpectralAttentionLayer(dw_channel//2, c2wh[dw_channel//2], c2wh[dw_channel//2], 'top16')
-        self.sg = SimpleGate2()  # 移除InstanceNorm
-        self.conv4 = nn.Conv2d(c, FFN_Expand * c, 1, padding=0, bias=True)
-        self.conv5 = nn.Conv2d(FFN_Expand * c // 2, c, 1, padding=0, bias=True)
-        self.norm1 = LayerNorm2d(c)
-        self.norm2 = LayerNorm2d(c)
-        self.dropout1 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
-        self.dropout2 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
-        self.beta = nn.Parameter(torch.zeros(1, c, 1, 1))
-        self.gamma = nn.Parameter(torch.zeros(1, c, 1, 1))
-
-    def forward(self, inp):
-        identity = x
-        x = self.norm1(x)
-        x = self.sg(self.conv2(self.conv1(x)))
-        x = self.sca(x)
-        x = self.dropout1(self.conv3(x))
-        x = identity + x * self.beta
-        return x
-
 class FPNBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(FPNBlock, self).__init__()
-        self.lateral = nn.Conv2d(in_channels, out_channels, 1)
-        self.smooth = nn.Conv2d(out_channels, out_channels, 3, padding=1)
+        # Lateral connection: 1×1 Conv to reduce channels
+        self.lateral_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+        # Smooth layer: 3×3 Conv for refinement
+        self.smooth_conv = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
+        self.relu = nn.ReLU(inplace=True)
 
-    def forward(self, x):
-        x = self.lateral(x)
-        x = self.smooth(x)
-        return x
+    def forward(self, x, top_down=None):
+        """
+        Args:
+            x (Tensor): Low-level feature from encoder (e.g., C4).
+            top_down (Tensor): High-level feature from previous FPN block (e.g., upsampled C5).
+        Returns:
+            Tensor: Processed feature after fusion.
+        """
+        # Step 1: Lateral connection (1×1 Conv)
+        lateral = self.lateral_conv(x)
+        
+        # Step 2: Upsample top-down feature to match spatial dimensions of lateral
+        if top_down is not None:
+            if top_down.shape != lateral.shape:
+                top_down = F.interpolate(top_down, size=lateral.shape[2:], mode='bilinear', align_corners=True)
+            lateral += top_down  # Element-wise addition
 
-class NAFNet(nn.Module):
-    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1,1,1,28], middle_blk_num=1, dec_blk_nums=[1,1,1,1]):
+        # Step 3: Smooth and refine the fused features
+        out = self.smooth_conv(lateral)
+        out = self.relu(out)
+        return out
+
+
+class NAFBlock(nn.Module):
+    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1,1,1,28], 
+                 middle_blk_num=1, dec_blk_nums=[1,1,1,1]):
         super().__init__()
         self.width = width
         self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
         self.ups = nn.ModuleList()
-        self.fpn = nn.ModuleList()
-        self.channel_adapters = nn.ModuleList()  # 新增：通道适配器
-        #self.middle_blk_num = middle_blk_num  # 新增属性
-        self.middle_blocks = nn.ModuleList()  # 新增中间块列表
-        self.padder_size = 16  # 新增图像尺寸适配参数
-        
+        self.fpn = nn.ModuleList()  # 存储 FPNBlock 实例
+        self.channel_adapters = nn.ModuleList()
+        self.middle_blocks = nn.ModuleList()
+        self.padder_size = 16
+
         # 记录每个编码器的输出通道数
         enc_channels = []
-        
+
         # 初始化编码器
         for i in range(len(enc_blk_nums)):
             in_channels = img_channel if i == 0 else width * (2 ** (i-1))
@@ -216,15 +208,17 @@ class NAFNet(nn.Module):
             ]
             for _ in range(enc_blk_nums[i] - 1):
                 layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
-            layers.append(nn.ReLU())
+                layers.append(nn.ReLU())
             self.encoders.append(nn.Sequential(*layers))
-            enc_channels.append(out_channels)  # 记录当前编码器的输出通道数
-        in_channels_middle = self.encoders[-1][-1].out_channels
-        
+            enc_channels.append(out_channels)  # 预存通道数
+
+        # 使用预存的 enc_channels 列表
+        in_channels_middle = enc_channels[-1]
+
         for _ in range(middle_blk_num):
-            self.middle_blocks.append(NAFBlock(in_channels_middle))
-        
-         # 初始化解码器
+            self.middle_blocks.append(TransformerBlock(in_channels_middle))  # 示例：替换为 TransformerBlock
+
+        # 初始化解码器
         for i in range(len(dec_blk_nums)):
             in_channels = width * (2 ** (len(enc_blk_nums)-i-1))
             out_channels = width * (2 ** (len(enc_blk_nums)-i-2)) if i < len(dec_blk_nums)-1 else width
@@ -234,42 +228,44 @@ class NAFNet(nn.Module):
             ]
             for _ in range(dec_blk_nums[i] - 1):
                 layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
-            layers.append(nn.ReLU())
+                layers.append(nn.ReLU())
             self.decoders.append(nn.Sequential(*layers))
             self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
-        
+
         # 初始化FPN模块
         fpn_channels = [width * (2**i) for i in reversed(range(len(enc_blk_nums)))]
         for c in fpn_channels:
-            print(f"Initializing FPNBlock with in_channels={c}, out_channels={self.width}")
-            self.fpn.append(FPNBlock(c, self.width))
-            
-        enc_channels = [e[-1].out_channels for e in self.encoders]
+            print(f"Initializing FPNBlock with in_channels={c}, out_channels={width}")
+            self.fpn.append(FPNBlock(c, width))  # 正确调用 FPNBlock
+
+        # 使用预存的 enc_channels 而非网络层属性
         target_channels = [d[0].in_channels for d in self.decoders]
         for ec, tc in zip(enc_channels, target_channels):
             self.channel_adapters.append(nn.Conv2d(ec, tc, 1))
-        
-         # 新增最终卷积层
+
+        # 最终卷积层
         self.final_conv = nn.Conv2d(width, img_channel, kernel_size=1)
 
         # 图像尺寸适配
-        self.check_image_size = lambda x: self._check_image_size(x)
-        
-        def _check_image_size(self, x):
-            _, _, h, w = x.size()
-            mod_pad_h = (self.padder_size - h % self.padder_size) % self.padder_size
-            mod_pad_w = (self.padder_size - w % self.padder_size) % self.padder_size
-            x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h))
-            return x
+        self.mod_pad_h = 0
+        self.mod_pad_w = 0
+
+    def _check_image_size(self, x):
+        _, _, h, w = x.size()
+        mod_pad_h = (self.padder_size - h % self.padder_size) % self.padder_size
+        mod_pad_w = (self.padder_size - w % self.padder_size) % self.padder_size
+        self.mod_pad_h = mod_pad_h
+        self.mod_pad_w = mod_pad_w
+        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h))
+        return x
 
     def forward(self, x):
-        
-        x = self._check_image_size(x)  # 调整输入尺寸
+        x = self._check_image_size(x)
         encs = []
         for encoder in self.encoders:
             x = encoder(x)
             encs.append(x)
-            x = F.max_pool2d(x, 2)  # 仅对非首层进行下采样？
+            x = F.max_pool2d(x, 2)
 
         # 中间块处理
         for blk in self.middle_blocks:
@@ -280,16 +276,22 @@ class NAFNet(nn.Module):
         for i, (decoder, up, fpn_block) in enumerate(zip(
             self.decoders, self.ups, self.fpn
         )):
-            enc_skip = encs[-i-1]
-            enc_skip = self.channel_adapters[len(encs)-i-1](enc_skip)
+            enc_skip = encs[-i-1]  # 获取对应层级的编码器特征
+            enc_skip = self.channel_adapters[i](enc_skip)  # 通道对齐
             target_size = x.size()[2:]
             enc_skip = F.interpolate(enc_skip, size=target_size, mode='bilinear')
+            
+            # 上采样当前解码器输出
             x = up(x)
+            
+            # 确保空间维度一致
             if x.shape[2:] != enc_skip.shape[2:]:
                 enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear')
-            x = x + enc_skip
+            
+            # 通过 FPNBlock 融合 x (解码器输出) 和 enc_skip (编码器跳连)
+            x = x + enc_skip  # 可选：先做简单相加
             x = decoder(x)
-            fpn_out = fpn_block(x)
+            fpn_out = fpn_block(x, enc_skip)  # 传入 enc_skip 作为 top_down 参数
             fpn_features.append(fpn_out)
 
         # 统一FPN特征尺寸并融合
@@ -300,26 +302,27 @@ class NAFNet(nn.Module):
         x = self.final_conv(x)
         return x[:, :, :x.size(2)-self.mod_pad_h, :x.size(3)-self.mod_pad_w]
 
-class v51fftLocal(Local_Base, NAFNet):
+
+class v51fftLocal(Local_Base, NAFBlock):  # 修改基类为 NAFBlock
     def __init__(self, *args, train_size=(1, 3, 256, 256), fast_imp=False, **kwargs):
         Local_Base.__init__(self)
-        NAFNet.__init__(self, *args, **kwargs)
+        NAFBlock.__init__(self, *args, **kwargs)
         N, C, H, W = train_size
         base_size = (int(H * 1.5), int(W * 1.5))
         self.eval()
         with torch.no_grad():
             self.convert(base_size=base_size, train_size=train_size, fast_imp=fast_imp)
-            
+
+
 if __name__ == '__main__':
-    
     img_channel = 3
     width = 32
     enc_blks = [1, 1, 1, 28]
     middle_blk_num = 1
     dec_blks = [1, 1, 1, 1]
 
-    net = NAFNet(img_channel=img_channel, width=width, middle_blk_num=middle_blk_num,
-                 enc_blk_nums=enc_blks, dec_blk_nums=dec_blks)
+    net = NAFBlock(img_channel=img_channel, width=width, middle_blk_num=middle_blk_num,
+                   enc_blk_nums=enc_blks, dec_blk_nums=dec_blks)
     inp_shape = (3, 256, 256)
     from ptflops import get_model_complexity_info
     macs, params = get_model_complexity_info(net, inp_shape, verbose=False, print_per_layer_stat=False)

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import math
+import torch.nn.functional as F
 
 
 class BasicConv(nn.Module):
@@ -180,3 +181,34 @@ class SimpleGate2(nn.Module):
     def forward(self, x):
         x1, x2 = x.chunk(2, dim=1)
         return x1 * x2
+
+class FPNBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(FPNBlock, self).__init__()
+        # Lateral connection: 1×1 Conv to reduce channels
+        self.lateral_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+        # Smooth layer: 3×3 Conv for refinement
+        self.smooth_conv = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x, top_down=None):
+        """
+        Args:
+            x (Tensor): Low-level feature from encoder (e.g., C4).
+            top_down (Tensor): High-level feature from previous FPN block (e.g., upsampled C5).
+        Returns:
+            Tensor: Processed feature after fusion.
+        """
+        # Step 1: Lateral connection (1×1 Conv)
+        lateral = self.lateral_conv(x)
+        
+        # Step 2: Upsample top-down feature to match spatial dimensions of lateral
+        if top_down is not None:
+            if top_down.shape != lateral.shape:
+                top_down = F.interpolate(top_down, size=lateral.shape[2:], mode='bilinear', align_corners=True)
+            lateral += top_down  # Element-wise addition
+
+        # Step 3: Smooth and refine the fused features
+        out = self.smooth_conv(lateral)
+        out = self.relu(out)
+        return out
