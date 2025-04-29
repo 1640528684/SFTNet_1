@@ -62,6 +62,15 @@ class DFFN(nn.Module):
         h_blocks = h_padded // self.patch_size
         w_blocks = w_padded // self.patch_size
 
+        # 添加调试信息
+        print(f"h_padded: {h_padded}, w_padded: {w_padded}")
+        print(f"h_blocks: {h_blocks}, w_blocks: {w_blocks}")
+        print(f"x_fft shape: {x_fft.shape}")
+
+        # 断言检查
+        assert x_fft.shape[2] == h_blocks and x_fft.shape[3] == w_blocks, \
+            f"Block count mismatch: ({x_fft.shape[2]}, {x_fft.shape[3]}) vs ({h_blocks}, {w_blocks})"
+
         expanded_fft = self.fft.expand(
             self.fft.size(0),
             h_blocks,
@@ -69,11 +78,6 @@ class DFFN(nn.Module):
             self.fft.size(3),
             self.fft.size(4)
         )
-        assert x_fft.shape[1] == expanded_fft.size(0), \
-            f"Channel mismatch: {x_fft.shape[1]} vs {expanded_fft.size(0)}"
-        assert x_fft.shape[2] == h_blocks and x_fft.shape[3] == w_blocks, \
-            f"Block count mismatch: ({x_fft.shape[2]}, {x_fft.shape[3]}) vs ({h_blocks}, {w_blocks})"
-
         x_fft = x_fft * expanded_fft
         x = torch.fft.ifft2(x_fft).real
         x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)',
