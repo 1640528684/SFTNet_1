@@ -51,25 +51,29 @@ class DFFN(nn.Module):
         self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
 
     def forward(self, x):
+        x = self._check_image_size(x)
         x = self.project_in(x)
         h, w = x.size(2), x.size(3)
-        # 添加 padding 对齐 patch_size
-        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
-        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
-        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h))
-        h_padded, w_padded = x.size(2), x.size(3)
-        # 正确的 rearrange 模式
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2',
                             p1=self.patch_size, p2=self.patch_size)
-        print("x_patch shape:", x_patch.shape)  # 验证形状
         x_fft = torch.fft.fft2(x_patch)
+
+        h_padded, w_padded = x.size(2), x.size(3)
+        h_blocks = h_padded // self.patch_size
+        w_blocks = w_padded // self.patch_size
+
         expanded_fft = self.fft.expand(
             self.fft.size(0),
-            h_padded // self.patch_size,
-            w_padded // self.patch_size,
+            h_blocks,
+            w_blocks,
             self.fft.size(3),
             self.fft.size(4)
         )
+        assert x_fft.shape[1] == expanded_fft.size(0), \
+            f"Channel mismatch: {x_fft.shape[1]} vs {expanded_fft.size(0)}"
+        assert x_fft.shape[2] == h_blocks and x_fft.shape[3] == w_blocks, \
+            f"Block count mismatch: ({x_fft.shape[2]}, {x_fft.shape[3]}) vs ({h_blocks}, {w_blocks})"
+
         x_fft = x_fft * expanded_fft
         x = torch.fft.ifft2(x_fft).real
         x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)',
@@ -78,6 +82,13 @@ class DFFN(nn.Module):
         x1, x2 = x.chunk(2, dim=1)
         x = F.gelu(x1) * x2
         x = self.project_out(x)
+        return x
+
+    def _check_image_size(self, x):
+        _, _, h, w = x.size()
+        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
+        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
+        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h))
         return x
 
 
