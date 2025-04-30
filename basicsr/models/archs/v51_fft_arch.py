@@ -39,54 +39,49 @@ class SimpleGate2(nn.Module):
 
 
 class DFFN(nn.Module):
-    def __init__(self, dim, ffn_expansion_factor, bias):
+    def __init__(self, dim, ffn_expansion_factor=2, bias=False, patch_size=8):
         super(DFFN, self).__init__()
+        self.patch_size = patch_size
         hidden_features = int(dim * ffn_expansion_factor)
-        self.patch_size = 8
-        self.dim = dim
+
         self.fft = nn.Parameter(torch.randn(
             hidden_features * 2,
             1, 1,
-            self.patch_size,
-            self.patch_size // 2 + 1  # 确保最后一维是 5
+            patch_size,
+            patch_size // 2 + 1
         ))
+
+        self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
         self.project_in = nn.Conv2d(dim, hidden_features * 2, kernel_size=1, bias=bias)
-        self.dwconv = nn.Conv2d(hidden_features * 2, hidden_features * 2, kernel_size=3, stride=1, padding=1, groups=hidden_features * 2, bias=bias)
-        self.fft = nn.Parameter(torch.randn(hidden_features * 2, 1, 1,
-                                            self.patch_size, self.patch_size // 2 + 1))
         self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
 
     def forward(self, x):
-        x, mod_pad_h, mod_pad_w = self._check_image_size(x)
-        x = self.project_in(x)
-        _, _, h_padded, w_padded = x.size()
+        B, C, H, W = x.shape
+
+        # 假设外部已经处理好 padding，确保 H 和 W 能被 patch_size 整除
+
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2',
-                        p1=self.patch_size, p2=self.patch_size)
-    
-        # 使用 rfft2 替代 fft2
+                            p1=self.patch_size, p2=self.patch_size)
+
         x_fft = torch.fft.rfft2(x_patch)
 
-        h_blocks = h_padded // self.patch_size
-        w_blocks = w_padded // self.patch_size
+        h_blocks = H // self.patch_size
+        w_blocks = W // self.patch_size
 
-        # 扩展 self.fft 以匹配 x_fft 的形状
         expanded_fft = self.fft.expand(
             self.fft.size(0),
             h_blocks,
             w_blocks,
-            self.patch_size,
-            self.patch_size // 2 + 1
+            self.fft.size(3),
+            self.fft.size(4)
         )
-    
-        print("Shape of x_fft:", x_fft.shape)
-        print("Shape of expanded_fft:", expanded_fft.shape)
-        assert x_fft.shape == expanded_fft.shape, "Shapes of x_fft and expanded_fft do not match"
 
         x_fft = x_fft * expanded_fft
-    
-        x = torch.fft.irfft2(x_fft)
+
+        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
         x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)',
-                      h=h_blocks, w=w_blocks, b=x.size(0))
+                      h=h_blocks, w=w_blocks, b=B)
+
         x = self.dwconv(x)
         x1, x2 = x.chunk(2, dim=1)
         x = F.gelu(x1) * x2
