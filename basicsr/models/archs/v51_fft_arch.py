@@ -62,24 +62,24 @@ class DFFN(nn.Module):
         h, w = x.size(2), x.size(3)
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2',
                             p1=self.patch_size, p2=self.patch_size)
-        x_fft = torch.fft.rfft2(x_patch)  # 使用实数傅里叶变换
+    
+        # 使用 rfft2 替代 fft2
+        x_fft = torch.fft.rfft2(x_patch)  # 形状: (b * h_blocks * w_blocks, c, 8, 5)
 
         h_padded, w_padded = x.size(2), x.size(3)
         h_blocks = h_padded // self.patch_size
         w_blocks = w_padded // self.patch_size
 
-        # 正确断言：检查块内尺寸是否为 patch_size
-        assert x_fft.shape[2] == self.patch_size and x_fft.shape[3] == self.patch_size, \
-            f"Patch size mismatch: ({x_fft.shape[2]}, {x_fft.shape[3]}) vs {self.patch_size}"
-
+        # 扩展 self.fft 以匹配 x_fft 的形状
         expanded_fft = self.fft.expand(
             self.fft.size(0),
             h_blocks,
             w_blocks,
             self.fft.size(3),
-            self.fft.size(4)
+            self.fft.size(4)  # 最后一维是 5，与 x_fft 的 5 匹配
         )
         x_fft = x_fft * expanded_fft  # 现在维度匹配
+
         x = torch.fft.irfft2(x_fft)  # 反变换回空域
         x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)',
                       h=h_padded//self.patch_size, w=w_padded//self.patch_size, b=x.size(0))
