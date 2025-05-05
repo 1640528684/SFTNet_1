@@ -49,7 +49,10 @@ def dynamic_instantiation(modules, cls_type, opt):
             break
     if cls_ is None:
         raise ValueError(f'{cls_type} is not found.')
-    return cls_(**opt)
+    # 过滤掉 'type' 键，避免传递给模型类
+    params = {k: v for k, v in opt.items() if k != 'type'}
+    return cls_(**params)
+    #return cls_(**opt)
 
 
 def define_network(opt):
