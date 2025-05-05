@@ -272,11 +272,9 @@ class NAFBlock(nn.Module):
 
     def _check_image_size(self, x):
         _, _, h, w = x.size()
-        mod_pad_h = (self.padder_size - h % self.padder_size) % self.padder_size
-        mod_pad_w = (self.padder_size - w % self.padder_size) % self.padder_size
-        self.mod_pad_h = mod_pad_h
-        self.mod_pad_w = mod_pad_w
-        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h))
+        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
+        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
+        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
         return x
 
     def forward(self, x):
