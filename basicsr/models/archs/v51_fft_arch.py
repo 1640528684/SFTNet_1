@@ -80,15 +80,11 @@ class DFFN(nn.Module):
         print(f"x_fft shape: {x_fft.shape}")
         print(f"expanded_fft shape: {expanded_fft.shape}")
 
-        # 打印形状用于调试
-        print(f"x_fft shape: {x_fft.shape}")
-        print(f"expanded_fft shape: {expanded_fft.shape}")
-
         # 确保 expanded_fft 和 x_fft 的维度一致
         # 如果 expanded_fft 多出一个维度（如 batch_size），则 squeeze 掉
         if len(expanded_fft.shape) > len(x_fft.shape):
             expanded_fft = expanded_fft.squeeze(0)  # 去掉多余的 batch 维度
-        
+
         # 现在可以安全地扩展
         expanded_fft = expanded_fft.expand_as(x_fft)
 
