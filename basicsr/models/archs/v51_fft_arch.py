@@ -42,13 +42,13 @@ class DFFN(nn.Module):
     def __init__(self, dim, ffn_expansion_factor=2, bias=False, patch_size=8):
         super(DFFN, self).__init__()
         self.patch_size = patch_size
-        hidden_features = int(dim * ffn_expansion_factor)
+        hidden_features = int(dim * ffn_expansion_factor)  # e.g., dim=256 → hidden_features=512
 
-        # 正确初始化 self.fft：形状为 [hidden_features * 2, 8, 5]
+        # ✅ 正确初始化 self.fft：通道数 = hidden_features * 2 = 512
         self.fft = nn.Parameter(torch.randn(
-            hidden_features * 2,  # 通道数
-            patch_size,           # 频域宽度
-            patch_size // 2 + 1   # 频域高度（rfft2 输出）
+            hidden_features * 2,  # 512
+            patch_size,           # 8
+            patch_size // 2 + 1   # 5
         ))
 
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
@@ -57,36 +57,30 @@ class DFFN(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
-
-        # 假设外部已经处理好 padding，确保 H 和 W 能被 patch_size 整除
         h_blocks = H // self.patch_size
         w_blocks = W // self.patch_size
 
-        x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2',
-                            p1=self.patch_size, p2=self.patch_size)
+        # ✅ project_in 扩展通道数为 512
+        x = self.project_in(x)  # shape: [B, 512, H, W]
+        x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2', p1=self.patch_size, p2=self.patch_size)
+        x_fft = torch.fft.rfft2(x_patch)  # shape: [4, 512, 8, 5]
 
-        x_fft = torch.fft.rfft2(x_patch)
-
-        # 扩展 self.fft 到与 x_fft 匹配的形状
-        expanded_fft = self.fft.unsqueeze(0).unsqueeze(0)  # 添加 batch 和 channel 维度
+        # ✅ 正确扩展 self.fft 以匹配 x_fft 的形状
+        expanded_fft = self.fft.unsqueeze(0).unsqueeze(1)  # [1, 1, 512, 8, 5]
         expanded_fft = expanded_fft.expand(
-            B * h_blocks * w_blocks,  # 总块数
-            -1,                       #保持为1
-            -1,                       # 保持 hidden_features * 2
-            -1,                       # 保持 8
-            -1                        #保持为5
-        )  ## shape: [B * h_blocks * w_blocks, hidden_features * 2, 8, 5]
+            B * h_blocks * w_blocks,  # 4
+            -1,                       # 1
+            -1,                       # 512
+            -1,                       # 8
+            -1                        # 5
+        )  # shape: [4, 1, 512, 8, 5]
 
-        # 打印形状用于调试
-        print(f"x_fft shape: {x_fft.shape}")
-        print(f"expanded_fft shape: {expanded_fft.shape}")
+        # ✅ 现在可以安全地进行频域乘法
+        x_fft = x_fft * expanded_fft  # shape: [4, 512, 8, 5]
 
-        # 现在可以安全地扩展
-        x_fft = x_fft * expanded_fft
-
+        # 逆变换回空域并恢复形状
         x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
-        x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)',
-                      h=h_blocks, w=w_blocks, b=B)
+        x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)', h=h_blocks, w=w_blocks, b=B)
 
         x = self.dwconv(x)
         x1, x2 = x.chunk(2, dim=1)
