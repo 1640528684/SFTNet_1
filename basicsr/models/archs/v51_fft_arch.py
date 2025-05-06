@@ -57,45 +57,44 @@ class DFFN(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
+        # 计算正确的分块数（如 256x256 输入，patch_size=8 时，h_blocks=32, w_blocks=32）
         h_blocks = H // self.patch_size
         w_blocks = W // self.patch_size
 
-        # ✅ project_in 扩展通道数为 512
-        x = self.project_in(x)  # shape: [B, 512, H, W]
-        x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2', p1=self.patch_size, p2=self.patch_size)
-        x_fft = torch.fft.rfft2(x_patch)  # shape: [4, 512, 8, 5]
+        # 1. 通道扩展 + 分块重组（4 维 → 4 维）
+        x = self.project_in(x)  # [B, hidden_dim, H, W]
+        # 正确分块：将 (H, W) 划分为 (h_blocks, w_blocks) 个 patch
+        x_patch = rearrange(
+            x, 'b c (h p1) (w p2) -> b (h w) c p1 p2',  # 保持 batch 维度，重组分块
+            p1=self.patch_size, p2=self.patch_size,
+            h=h_blocks, w=w_blocks
+        )  # 形状：[B, h_blocks*w_blocks, hidden_dim, patch_size, patch_size]
+        
+        # 2. 频域操作（确保输入为 4 维：[batch, channel, height, width]）
+        # 转换为傅里叶变换所需的 4 维格式：[batch*block_num, channel, patch_h, patch_w//2+1]
+        x_fft = torch.fft.rfft2(
+            rearrange(x_patch, 'b hw c p1 p2 -> (b hw) c p1 p2', hw=h_blocks*w_blocks)
+        )  # 形状：[B*h_blocks*w_blocks, hidden_dim, patch_size, patch_size//2+1]
 
-        # ✅ 正确扩展 self.fft 以匹配 x_fft 的形状
-        expanded_fft = self.fft.unsqueeze(0).unsqueeze(1)  # [1, 1, 512, 8, 5]
-        expanded_fft = expanded_fft.expand(
-            B * h_blocks * w_blocks,  # 4
-            -1,                       # 1
-            -1,                       # 512
-            -1,                       # 8
-            -1                        # 5
-        )  # shape: [4, 1, 512, 8, 5]
+        # 3. 频域参数扩展与乘法（维度对齐）
+        expanded_fft = self.fft.unsqueeze(0)  # [1, hidden_dim, patch_size, patch_size//2+1]
+        x_fft = x_fft * expanded_fft  # 广播机制自动匹配维度
 
-        # ✅ 现在可以安全地进行频域乘法
-        x_fft = x_fft * expanded_fft  # shape: [4, 512, 8, 5]
+        # 4. 逆傅里叶变换（恢复 4 维空域张量）
+        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
+        # 形状：[B*h_blocks*w_blocks, hidden_dim, patch_size, patch_size]
 
-        # 逆变换回空域并恢复形状
-        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))  # shape: [4, 512, 8, 8]
-        print(f"x shape after irfft2: {x.shape}")  # 应为 [4, 512, 8, 8]
+        # 5. 重组为原始空间尺寸（4 维 → 4 维）
+        x = rearrange(
+            x, '(b hw) c p1 p2 -> b c (hw // w_blocks) p1 (hw % w_blocks + 1) p2',
+            b=B, hw=h_blocks*w_blocks, p1=self.patch_size, p2=self.patch_size
+        ).squeeze()  # 移除冗余维度，确保 4 维：[B, hidden_dim, H, W]
 
-        # 确保输入张量是 4 维的
-        assert x.dim() == 4, f"Expected 4-dim tensor, got {x.dim()}-dim tensor with shape {x.shape}"
-
-        # ✅ 正确重组形状
-        x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)', h=h_blocks, w=w_blocks, b=B)
-        # 输出 shape: [B, H, W, 512]
-
-        # ✅ 调整通道位置
-        x = x.permute(0, 3, 1, 2)  # shape: [B, 512, H, W]
-
+        # 6. 后续卷积与门控操作
         x = self.dwconv(x)
-        x1, x2 = x.chunk(2, dim=1)  # 拆分 512 → 256 + 256
+        x1, x2 = x.chunk(2, dim=1)
         x = F.gelu(x1) * x2
-        x = self.project_out(x)  # 压缩回 dim
+        x = self.project_out(x)
         return x
 
 def to_3d(x):
