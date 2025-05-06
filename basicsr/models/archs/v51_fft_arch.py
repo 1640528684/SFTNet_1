@@ -44,11 +44,11 @@ class DFFN(nn.Module):
         self.patch_size = patch_size
         hidden_features = int(dim * ffn_expansion_factor)
 
+        # 正确初始化 self.fft：形状为 [hidden_features * 2, 8, 5]
         self.fft = nn.Parameter(torch.randn(
-            hidden_features * 2,
-            1, 1,
-            patch_size,
-            patch_size // 2 + 1
+            hidden_features * 2,  # 通道数
+            patch_size,           # 频域宽度
+            patch_size // 2 + 1   # 频域高度（rfft2 输出）
         ))
 
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
@@ -68,14 +68,13 @@ class DFFN(nn.Module):
         x_fft = torch.fft.rfft2(x_patch)
 
         # 扩展 self.fft 到与 x_fft 匹配的形状
-        expanded_fft = self.fft.unsqueeze(0)  # 添加 batch 维度 -> [1, 2, 2, 8, 5]
+        expanded_fft = self.fft.unsqueeze(0).unsqueeze(0)  # 添加 batch 和 channel 维度
         expanded_fft = expanded_fft.expand(
             B * h_blocks * w_blocks,  # 总块数
-            self.fft.size(0),         # 2
-            self.fft.size(1),         # 2
-            self.fft.size(2),         # 8
-            self.fft.size(3)          # 5
-        )
+            -1,  # 保持 hidden_features * 2
+            -1,  # 保持 8
+            -1   # 保持 5
+        )  ## shape: [B * h_blocks * w_blocks, hidden_features * 2, 8, 5]
 
         # 打印形状用于调试
         print(f"x_fft shape: {x_fft.shape}")

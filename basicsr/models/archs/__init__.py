@@ -4,6 +4,8 @@
 # Modified from BasicSR (https://github.com/xinntao/BasicSR)
 # Copyright 2018-2020 BasicSR Authors
 # ------------------------------------------------------------------------
+import torch
+import torch.nn as nn
 import importlib
 from os import path as osp
 
