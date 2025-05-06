@@ -189,25 +189,23 @@ class FPNBlock(nn.Module):
 
 
 class NAFBlock(nn.Module):
-    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1,1,1,28], 
-                 middle_blk_num=1, dec_blk_nums=[1,1,1,1],  patch_size=8 ):
+    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1, 1, 1, 28],
+                 middle_blk_num=1, dec_blk_nums=[1, 1, 1, 1], patch_size=8):
         super().__init__()
         self.patch_size = patch_size
         self.width = width
         self.encoders = nn.ModuleList()
         self.decoders = nn.ModuleList()
         self.ups = nn.ModuleList()
-        self.fpn = nn.ModuleList()  # 存储 FPNBlock 实例
+        self.fpn = nn.ModuleList()
         self.channel_adapters = nn.ModuleList()
         self.middle_blocks = nn.ModuleList()
         self.padder_size = 16
 
-        # 记录每个编码器的输出通道数
         enc_channels = []
 
-        # 初始化编码器
         for i in range(len(enc_blk_nums)):
-            in_channels = img_channel if i == 0 else width * (2 ** (i-1))
+            in_channels = img_channel if i == 0 else width * (2 ** (i - 1))
             out_channels = width * (2 ** i)
             layers = [
                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
@@ -217,18 +215,18 @@ class NAFBlock(nn.Module):
                 layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
                 layers.append(nn.ReLU())
             self.encoders.append(nn.Sequential(*layers))
-            enc_channels.append(out_channels)  # 预存通道数
+            enc_channels.append(out_channels)
 
         # 使用预存的 enc_channels 列表
         in_channels_middle = enc_channels[-1]
 
         for _ in range(middle_blk_num):
-            self.middle_blocks.append(TransformerBlock(in_channels_middle))  # 示例：替换为 TransformerBlock
+            self.middle_blocks.append(TransformerBlock(in_channels_middle))
 
-        # 初始化解码器
+        decoder_in_channels = []
         for i in range(len(dec_blk_nums)):
-            in_channels = width * (2 ** (len(enc_blk_nums)-i-1))
-            out_channels = width * (2 ** (len(enc_blk_nums)-i-2)) if i < len(dec_blk_nums)-1 else width
+            in_channels = width * (2 ** (len(enc_blk_nums) - i - 1))
+            out_channels = width * (2 ** (len(enc_blk_nums) - i - 2)) if i < len(dec_blk_nums) - 1 else width
             layers = [
                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
                 nn.ReLU()
@@ -238,22 +236,18 @@ class NAFBlock(nn.Module):
                 layers.append(nn.ReLU())
             self.decoders.append(nn.Sequential(*layers))
             self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+            decoder_in_channels.append(in_channels)
 
-        # 初始化FPN模块
-        fpn_channels = [width * (2**i) for i in reversed(range(len(enc_blk_nums)))]
+        for ec, dc in zip(enc_channels, decoder_in_channels):
+            self.channel_adapters.append(nn.Conv2d(ec, dc, 1, bias=False))
+
+        fpn_channels = [width * (2 ** i) for i in reversed(range(len(enc_blk_nums)))]
         for c in fpn_channels:
             print(f"Initializing FPNBlock with in_channels={c}, out_channels={width}")
-            self.fpn.append(FPNBlock(c, width))  # 正确调用 FPNBlock
+            self.fpn.append(FPNBlock(c, width))
 
-        # 使用预存的 enc_channels 而非网络层属性
-        target_channels = [d[0].in_channels for d in self.decoders]
-        for ec, tc in zip(enc_channels, target_channels):
-            self.channel_adapters.append(nn.Conv2d(ec, tc, 1))
-
-        # 最终卷积层
         self.final_conv = nn.Conv2d(width, img_channel, kernel_size=1)
 
-        # 图像尺寸适配
         self.mod_pad_h = 0
         self.mod_pad_w = 0
 
@@ -262,7 +256,6 @@ class NAFBlock(nn.Module):
         mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
         mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        print(f"Padded image size: {x.size()}")  # 添加日志
         return x
 
     def forward(self, x):
@@ -273,40 +266,34 @@ class NAFBlock(nn.Module):
             encs.append(x)
             x = F.max_pool2d(x, 2)
 
-        # 中间块处理
         for blk in self.middle_blocks:
             x = blk(x)
 
-        # 解码器和FPN融合
         fpn_features = []
         for i, (decoder, up, fpn_block) in enumerate(zip(
-            self.decoders, self.ups, self.fpn
+                self.decoders, self.ups, self.fpn
         )):
-            enc_skip = encs[-i-1]  # 获取对应层级的编码器特征
-            enc_skip = self.channel_adapters[i](enc_skip)  # 通道对齐
+            enc_skip = encs[-i - 1]
+            enc_skip = self.channel_adapters[i](enc_skip)
             target_size = x.size()[2:]
             enc_skip = F.interpolate(enc_skip, size=target_size, mode='bilinear')
-            
-            # 上采样当前解码器输出
+
             x = up(x)
-            
-            # 确保空间维度一致
+
             if x.shape[2:] != enc_skip.shape[2:]:
                 enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear')
-            
-            # 通过 FPNBlock 融合 x (解码器输出) 和 enc_skip (编码器跳连)
-            x = x + enc_skip  # 可选：先做简单相加
+
+            x = x + enc_skip
             x = decoder(x)
-            fpn_out = fpn_block(x, enc_skip)  # 传入 enc_skip 作为 top_down 参数
+            fpn_out = fpn_block(x, enc_skip)
             fpn_features.append(fpn_out)
 
-        # 统一FPN特征尺寸并融合
-        max_size = (max(f.size(2) for f in fpn_features), 
-                   max(f.size(3) for f in fpn_features))
+        max_size = (max(f.size(2) for f in fpn_features),
+                    max(f.size(3) for f in fpn_features))
         fused = sum(F.interpolate(f, size=max_size, mode='bilinear') for f in fpn_features)
         x = x + fused
         x = self.final_conv(x)
-        return x[:, :, :x.size(2)-self.mod_pad_h, :x.size(3)-self.mod_pad_w]
+        return x[:, :, :x.size(2) - self.mod_pad_h, :x.size(3) - self.mod_pad_w]
 
 
 class v51fftLocal(Local_Base, NAFBlock):  # 修改基类为 NAFBlock
