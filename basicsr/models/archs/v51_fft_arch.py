@@ -81,6 +81,12 @@ class DFFN(nn.Module):
         # 逆变换回空域并恢复形状
         x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))  # shape: [4, 512, 8, 8]
         print(f"x shape after irfft2: {x.shape}")  # 应为 [4, 512, 8, 8]
+        
+        # 检查形状是否异常
+        if x.dim() == 5:
+            # 如果是 5 维，尝试调整形状
+            x = x.squeeze(1)  # 假设多余的维度在第 1 个位置
+        print(f"x shape after irfft2: {x.shape}")  # 应为 [4, 512, 8, 8]
 
         # ✅ 正确重组形状（适配 5D 输入）
         x = rearrange(x, '(b h w) c p1 p2 -> b (h p1) (w p2) c', h=h_blocks, w=w_blocks, b=B)
