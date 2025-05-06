@@ -59,35 +59,29 @@ class DFFN(nn.Module):
         B, C, H, W = x.shape
 
         # 假设外部已经处理好 padding，确保 H 和 W 能被 patch_size 整除
+        h_blocks = H // self.patch_size
+        w_blocks = W // self.patch_size
 
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2',
                             p1=self.patch_size, p2=self.patch_size)
 
         x_fft = torch.fft.rfft2(x_patch)
 
-        h_blocks = H // self.patch_size
-        w_blocks = W // self.patch_size
-
-        expanded_fft = self.fft.expand(
-            self.fft.size(0),
-            h_blocks,
-            w_blocks,
-            self.fft.size(3),
-            self.fft.size(4)
+        # 扩展 self.fft 到与 x_fft 匹配的形状
+        expanded_fft = self.fft.unsqueeze(0)  # 添加 batch 维度 -> [1, 2, 2, 8, 5]
+        expanded_fft = expanded_fft.expand(
+            B * h_blocks * w_blocks,  # 总块数
+            self.fft.size(0),         # 2
+            self.fft.size(1),         # 2
+            self.fft.size(2),         # 8
+            self.fft.size(3)          # 5
         )
-        
+
         # 打印形状用于调试
         print(f"x_fft shape: {x_fft.shape}")
         print(f"expanded_fft shape: {expanded_fft.shape}")
 
-        # 确保 expanded_fft 和 x_fft 的维度一致
-        # 如果 expanded_fft 多出一个维度（如 batch_size），则 squeeze 掉
-        if len(expanded_fft.shape) > len(x_fft.shape):
-            expanded_fft = expanded_fft.squeeze(0)  # 去掉多余的 batch 维度
-
         # 现在可以安全地扩展
-        expanded_fft = expanded_fft.expand_as(x_fft)
-
         x_fft = x_fft * expanded_fft
 
         x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
