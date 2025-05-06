@@ -60,32 +60,30 @@ class DFFN(nn.Module):
         h_blocks = H // self.patch_size
         w_blocks = W // self.patch_size
 
+        # 确保 B * h_blocks * w_blocks 等于输入张量的第一个维度
+        assert B * h_blocks * w_blocks == x.size(0), f"Shape mismatch: {B * h_blocks * w_blocks} != {x.size(0)}"
+
         # ✅ project_in 扩展通道数为 512
         x = self.project_in(x)  # shape: [B, 512, H, W]
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2', p1=self.patch_size, p2=self.patch_size)
-        x_fft = torch.fft.rfft2(x_patch)  # shape: [4, 512, 8, 5]
+        x_fft = torch.fft.rfft2(x_patch)  # shape: [B * h_blocks * w_blocks, 512, 8, 5]
 
         # ✅ 正确扩展 self.fft 以匹配 x_fft 的形状
         expanded_fft = self.fft.unsqueeze(0).unsqueeze(1)  # [1, 1, 512, 8, 5]
         expanded_fft = expanded_fft.expand(
-            B * h_blocks * w_blocks,  # 4
+            B * h_blocks * w_blocks,  # B * h_blocks * w_blocks
             -1,                       # 1
             -1,                       # 512
             -1,                       # 8
             -1                        # 5
-        )  # shape: [4, 1, 512, 8, 5]
+        )  # shape: [B * h_blocks * w_blocks, 1, 512, 8, 5]
 
         # ✅ 现在可以安全地进行频域乘法
-        x_fft = x_fft * expanded_fft  # shape: [4, 512, 8, 5]
+        x_fft = x_fft * expanded_fft  # shape: [B * h_blocks * w_blocks, 512, 8, 5]
 
         # 逆变换回空域并恢复形状
-        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))  # shape: [4, 512, 8, 8]
-        print(f"x shape after irfft2: {x.shape}")  # 应为 [4, 512, 8, 8]
-
-        # 确保 x 是 4 维的
-        if x.dim() == 5:
-            # 这里假设多余的维度是可以合并或者去除的，具体处理方式根据实际情况调整
-            x = x.view(-1, *x.shape[-3:])
+        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))  # shape: [B * h_blocks * w_blocks, 512, 8, 8]
+        print(f"x shape after irfft2: {x.shape}")  # 应为 [B * h_blocks * w_blocks, 512, 8, 8]
 
         # ✅ 正确重组形状（适配 4D 输入）
         x = rearrange(x, '(b h w) c p1 p2 -> b (h p1) (w p2) c', h=h_blocks, w=w_blocks, b=B)
