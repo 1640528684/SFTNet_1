@@ -60,44 +60,27 @@ class DFFN(nn.Module):
         h_blocks = H // self.patch_size
         w_blocks = W // self.patch_size
 
-        # 确保 B * h_blocks * w_blocks 等于输入张量的第一个维度
-        #assert B * h_blocks * w_blocks == x.size(0), f"Shape mismatch: {B * h_blocks * w_blocks} != {x.size(0)}"
-        print(f"B: {B}, h_blocks: {h_blocks}, w_blocks: {w_blocks}, x.size(0): {x.size(0)}")  # 添加日志
-        assert B * h_blocks * w_blocks == x.size(0), f"Shape mismatch: {B * h_blocks * w_blocks} != {x.size(0)}"
-
-        # ✅ project_in 扩展通道数为 512
-        x = self.project_in(x)  # shape: [B, 512, H, W]
+        x = self.project_in(x)
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2', p1=self.patch_size, p2=self.patch_size)
-        x_fft = torch.fft.rfft2(x_patch)  # shape: [B * h_blocks * w_blocks, 512, 8, 5]
+        x_fft = torch.fft.rfft2(x_patch)
 
-        # ✅ 正确扩展 self.fft 以匹配 x_fft 的形状
-        expanded_fft = self.fft.unsqueeze(0).unsqueeze(1)  # [1, 1, 512, 8, 5]
+        expanded_fft = self.fft.unsqueeze(0).unsqueeze(1)
         expanded_fft = expanded_fft.expand(
-            B * h_blocks * w_blocks,  # B * h_blocks * w_blocks
-            -1,                       # 1
-            -1,                       # 512
-            -1,                       # 8
-            -1                        # 5
-        )  # shape: [B * h_blocks * w_blocks, 1, 512, 8, 5]
+            B * h_blocks * w_blocks,
+            -1,
+            -1,
+            -1,
+            -1
+        )
 
-        # ✅ 现在可以安全地进行频域乘法
-        x_fft = x_fft * expanded_fft  # shape: [B * h_blocks * w_blocks, 512, 8, 5]
-
-        # 逆变换回空域并恢复形状
-        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))  # shape: [B * h_blocks * w_blocks, 512, 8, 8]
-        print(f"x shape after irfft2: {x.shape}")  # 应为 [B * h_blocks * w_blocks, 512, 8, 8]
-
-        # ✅ 正确重组形状（适配 4D 输入）
-        x = rearrange(x, '(b h w) c p1 p2 -> b (h p1) (w p2) c', h=h_blocks, w=w_blocks, b=B)
-        # 输出 shape: [B, H, W, 512]
-
-        # ✅ 调整通道位置
-        x = x.permute(0, 3, 1, 2)  # shape: [B, 512, H, W]
+        x_fft = x_fft * expanded_fft
+        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
+        x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)', h=h_blocks, w=w_blocks)
 
         x = self.dwconv(x)
-        x1, x2 = x.chunk(2, dim=1)  # 拆分 512 → 256 + 256
+        x1, x2 = x.chunk(2, dim=1)
         x = F.gelu(x1) * x2
-        x = self.project_out(x)  # 压缩回 dim
+        x = self.project_out(x)
         return x
 
 def to_3d(x):
