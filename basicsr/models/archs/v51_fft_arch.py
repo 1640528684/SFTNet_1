@@ -57,40 +57,33 @@ class DFFN(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
-        # 计算正确的分块数（如 256x256 输入，patch_size=8 时，h_blocks=32, w_blocks=32）
-        h_blocks = H // self.patch_size
-        w_blocks = W // self.patch_size
+        h_blocks = H // self.patch_size  # 分块数（高度方向）
+        w_blocks = W // self.patch_size  # 分块数（宽度方向）
 
-        # 1. 通道扩展 + 分块重组（4 维 → 4 维）
+        # 1. 通道扩展 + 分块（确保分块后维度为 [B, h_blocks, w_blocks, C, patch_size, patch_size]）
         x = self.project_in(x)  # [B, hidden_dim, H, W]
-        # 正确分块：将 (H, W) 划分为 (h_blocks, w_blocks) 个 patch
         x_patch = rearrange(
-            x, 'b c (h p1) (w p2) -> b (h w) c p1 p2',  # 保持 batch 维度，重组分块
+            x, 'b c (h p1) (w p2) -> b h w c p1 p2',  # 合法的重组模式，无运算符
             p1=self.patch_size, p2=self.patch_size,
             h=h_blocks, w=w_blocks
-        )  # 形状：[B, h_blocks*w_blocks, hidden_dim, patch_size, patch_size]
-        
-        # 2. 频域操作（确保输入为 4 维：[batch, channel, height, width]）
-        # 转换为傅里叶变换所需的 4 维格式：[batch*block_num, channel, patch_h, patch_w//2+1]
-        x_fft = torch.fft.rfft2(
-            rearrange(x_patch, 'b hw c p1 p2 -> (b hw) c p1 p2', hw=h_blocks*w_blocks)
-        )  # 形状：[B*h_blocks*w_blocks, hidden_dim, patch_size, patch_size//2+1]
+        )  # 形状：[B, h_blocks, w_blocks, hidden_dim, patch_size, patch_size]
+
+        # 2. 转换为傅里叶变换所需的 4 维格式：[B*h_blocks*w_blocks, hidden_dim, patch_size, patch_size]
+        x_fft_input = rearrange(x_patch, 'b h w c p1 p2 -> (b h w) c p1 p2')
+        x_fft = torch.fft.rfft2(x_fft_input)  # 频域变换：[N, hidden_dim, patch_size, patch_size//2+1]
 
         # 3. 频域参数扩展与乘法（维度对齐）
         expanded_fft = self.fft.unsqueeze(0)  # [1, hidden_dim, patch_size, patch_size//2+1]
-        x_fft = x_fft * expanded_fft  # 广播机制自动匹配维度
+        x_fft = x_fft * expanded_fft  # 广播乘法
 
-        # 4. 逆傅里叶变换（恢复 4 维空域张量）
+        # 4. 逆傅里叶变换 + 维度重组（关键修复点：使用合法的重组模式）
         x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
-        # 形状：[B*h_blocks*w_blocks, hidden_dim, patch_size, patch_size]
+        # 重组回 [B, h_blocks, w_blocks, hidden_dim, patch_size, patch_size]
+        x = rearrange(x, '(b h w) c p1 p2 -> b h w c p1 p2', b=B, h=h_blocks, w=w_blocks)
+        # 合并空间维度：[B, hidden_dim, h_blocks*patch_size, w_blocks*patch_size]
+        x = rearrange(x, 'b h w c p1 p2 -> b c (h p1) (w p2)', p1=self.patch_size, p2=self.patch_size)
 
-        # 5. 重组为原始空间尺寸（4 维 → 4 维）
-        x = rearrange(
-            x, '(b hw) c p1 p2 -> b c (hw // w_blocks) p1 (hw % w_blocks + 1) p2',
-            b=B, hw=h_blocks*w_blocks, p1=self.patch_size, p2=self.patch_size
-        ).squeeze()  # 移除冗余维度，确保 4 维：[B, hidden_dim, H, W]
-
-        # 6. 后续卷积与门控操作
+        # 5. 后续卷积与门控操作
         x = self.dwconv(x)
         x1, x2 = x.chunk(2, dim=1)
         x = F.gelu(x1) * x2
