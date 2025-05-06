@@ -42,52 +42,37 @@ class DFFN(nn.Module):
     def __init__(self, dim, ffn_expansion_factor=2, bias=False, patch_size=8):
         super(DFFN, self).__init__()
         self.patch_size = patch_size
-        hidden_features = int(dim * ffn_expansion_factor)  # e.g., dim=256 → hidden_features=512
-
-        # ✅ 正确初始化 self.fft：通道数 = hidden_features = 512
+        self.hidden_features = int(dim * ffn_expansion_factor)  # 计算隐藏层通道数（如 512）
         self.fft = nn.Parameter(torch.randn(
-            hidden_features,  # 512
-            patch_size,       # 8
-            patch_size // 2 + 1  # 5
+            self.hidden_features,  # 通道数与隐藏层一致
+            patch_size,
+            patch_size // 2 + 1
         ))
-
-        self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
-        self.project_in = nn.Conv2d(dim, hidden_features, kernel_size=1, bias=bias)  # 输出通道为 512
-        self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
+        self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, groups=dim, bias=bias)
+        self.project_in = nn.Conv2d(dim, self.hidden_features, 1, bias=bias)  # 输入→隐藏层通道
+        # 关键修正：project_out 的输入通道应为 hidden_features // 2（拆分后通道数）
+        self.project_out = nn.Conv2d(self.hidden_features // 2, dim, 1, bias=bias)  
 
     def forward(self, x):
         B, C, H, W = x.shape
-        h_blocks = H // self.patch_size  # 分块数（高度方向）
-        w_blocks = W // self.patch_size  # 分块数（宽度方向）
+        h_blocks = H // self.patch_size
+        w_blocks = W // self.patch_size
 
-        # 1. 通道扩展 + 分块（确保分块后维度为 [B, h_blocks, w_blocks, C, patch_size, patch_size]）
-        x = self.project_in(x)  # [B, hidden_dim, H, W]
-        x_patch = rearrange(
-            x, 'b c (h p1) (w p2) -> b h w c p1 p2',  # 合法的重组模式，无运算符
-            p1=self.patch_size, p2=self.patch_size,
-            h=h_blocks, w=w_blocks
-        )  # 形状：[B, h_blocks, w_blocks, hidden_dim, patch_size, patch_size]
-
-        # 2. 转换为傅里叶变换所需的 4 维格式：[B*h_blocks*w_blocks, hidden_dim, patch_size, patch_size]
+        x = self.project_in(x)  # [B, hidden_features=512, H, W]
+        x_patch = rearrange(x, 'b c (h p1) (w p2) -> b h w c p1 p2', 
+                            p1=self.patch_size, p2=self.patch_size, h=h_blocks, w=w_blocks)
         x_fft_input = rearrange(x_patch, 'b h w c p1 p2 -> (b h w) c p1 p2')
-        x_fft = torch.fft.rfft2(x_fft_input)  # 频域变换：[N, hidden_dim, patch_size, patch_size//2+1]
-
-        # 3. 频域参数扩展与乘法（维度对齐）
-        expanded_fft = self.fft.unsqueeze(0)  # [1, hidden_dim, patch_size, patch_size//2+1]
-        x_fft = x_fft * expanded_fft  # 广播乘法
-
-        # 4. 逆傅里叶变换 + 维度重组（关键修复点：使用合法的重组模式）
+        x_fft = torch.fft.rfft2(x_fft_input)
+        expanded_fft = self.fft.unsqueeze(0)
+        x_fft = x_fft * expanded_fft
         x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
-        # 重组回 [B, h_blocks, w_blocks, hidden_dim, patch_size, patch_size]
         x = rearrange(x, '(b h w) c p1 p2 -> b h w c p1 p2', b=B, h=h_blocks, w=w_blocks)
-        # 合并空间维度：[B, hidden_dim, h_blocks*patch_size, w_blocks*patch_size]
         x = rearrange(x, 'b h w c p1 p2 -> b c (h p1) (w p2)', p1=self.patch_size, p2=self.patch_size)
 
-        # 5. 后续卷积与门控操作
-        x = self.dwconv(x)
-        x1, x2 = x.chunk(2, dim=1)
-        x = F.gelu(x1) * x2
-        x = self.project_out(x)
+        x = self.dwconv(x)  # [B, hidden_features=512, H, W]
+        x1, x2 = x.chunk(2, dim=1)  # 拆分为两个 256 通道
+        x = F.gelu(x1) * x2  # 通道数保持 256
+        x = self.project_out(x)  # 正确输入通道：256 → 输出通道：dim（如 256）
         return x
 
 def to_3d(x):
