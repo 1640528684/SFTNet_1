@@ -60,27 +60,42 @@ class DFFN(nn.Module):
         h_blocks = H // self.patch_size
         w_blocks = W // self.patch_size
 
-        x = self.project_in(x)
+        # ✅ project_in 扩展通道数为 512
+        x = self.project_in(x)  # shape: [B, 512, H, W]
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2', p1=self.patch_size, p2=self.patch_size)
-        x_fft = torch.fft.rfft2(x_patch)
+        x_fft = torch.fft.rfft2(x_patch)  # shape: [4, 512, 8, 5]
 
-        expanded_fft = self.fft.unsqueeze(0).unsqueeze(1)
+        # ✅ 正确扩展 self.fft 以匹配 x_fft 的形状
+        expanded_fft = self.fft.unsqueeze(0).unsqueeze(1)  # [1, 1, 512, 8, 5]
         expanded_fft = expanded_fft.expand(
-            B * h_blocks * w_blocks,
-            -1,
-            -1,
-            -1,
-            -1
-        )
+            B * h_blocks * w_blocks,  # 4
+            -1,                       # 1
+            -1,                       # 512
+            -1,                       # 8
+            -1                        # 5
+        )  # shape: [4, 1, 512, 8, 5]
 
-        x_fft = x_fft * expanded_fft
-        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
-        x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)', h=h_blocks, w=w_blocks)
+        # ✅ 现在可以安全地进行频域乘法
+        x_fft = x_fft * expanded_fft  # shape: [4, 512, 8, 5]
+
+        # 逆变换回空域并恢复形状
+        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))  # shape: [4, 512, 8, 8]
+        print(f"x shape after irfft2: {x.shape}")  # 应为 [4, 512, 8, 8]
+
+        # 确保输入张量是 4 维的
+        assert x.dim() == 4, f"Expected 4-dim tensor, got {x.dim()}-dim tensor with shape {x.shape}"
+
+        # ✅ 正确重组形状
+        x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)', h=h_blocks, w=w_blocks, b=B)
+        # 输出 shape: [B, H, W, 512]
+
+        # ✅ 调整通道位置
+        x = x.permute(0, 3, 1, 2)  # shape: [B, 512, H, W]
 
         x = self.dwconv(x)
-        x1, x2 = x.chunk(2, dim=1)
+        x1, x2 = x.chunk(2, dim=1)  # 拆分 512 → 256 + 256
         x = F.gelu(x1) * x2
-        x = self.project_out(x)
+        x = self.project_out(x)  # 压缩回 dim
         return x
 
 def to_3d(x):
