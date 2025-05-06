@@ -71,9 +71,10 @@ class DFFN(nn.Module):
         expanded_fft = self.fft.unsqueeze(0).unsqueeze(0)  # 添加 batch 和 channel 维度
         expanded_fft = expanded_fft.expand(
             B * h_blocks * w_blocks,  # 总块数
-            -1,  # 保持 hidden_features * 2
-            -1,  # 保持 8
-            -1   # 保持 5
+            -1,                       #保持为1
+            -1,                       # 保持 hidden_features * 2
+            -1,                       # 保持 8
+            -1                        #保持为5
         )  ## shape: [B * h_blocks * w_blocks, hidden_features * 2, 8, 5]
 
         # 打印形状用于调试
