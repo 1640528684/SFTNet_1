@@ -79,8 +79,12 @@ class DFFN(nn.Module):
         x_fft = x_fft * expanded_fft  # shape: [4, 512, 8, 5]
 
         # 逆变换回空域并恢复形状
-        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
+        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))  # shape: [4, 512, 8, 8]
+        print(f"x shape after irfft2: {x.shape}")  # 应为 [4, 512, 8, 8]
+
+        # ✅ 正确重组形状
         x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)', h=h_blocks, w=w_blocks, b=B)
+        # 输出 shape: [B, 512, H, W]
 
         x = self.dwconv(x)
         x1, x2 = x.chunk(2, dim=1)
