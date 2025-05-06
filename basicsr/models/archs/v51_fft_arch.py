@@ -44,54 +44,53 @@ class DFFN(nn.Module):
         self.patch_size = patch_size
         hidden_features = int(dim * ffn_expansion_factor)  # e.g., dim=256 → hidden_features=512
 
-        # ✅ 正确初始化 self.fft：通道数 = hidden_features * 2 = 512
+        # ✅ 正确初始化 self.fft：通道数 = hidden_features * 2 = 512 * 2 = 1024
         self.fft = nn.Parameter(torch.randn(
-            hidden_features * 2,  # 512
+            hidden_features * 2,  # 1024
             patch_size,           # 8
             patch_size // 2 + 1   # 5
         ))
 
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
-        self.project_in = nn.Conv2d(dim, hidden_features * 2, kernel_size=1, bias=bias)
-        self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
+        self.project_in = nn.Conv2d(dim, hidden_features * 2, kernel_size=1, bias=bias)  # 输出通道 1024
+        self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)     # 输入通道 512
 
     def forward(self, x):
         B, C, H, W = x.shape
         h_blocks = H // self.patch_size
         w_blocks = W // self.patch_size
 
-        # ✅ project_in 扩展通道数为 512
-        x = self.project_in(x)  # shape: [B, 512, H, W]
+        # ✅ project_in 扩展通道数为 1024
+        x = self.project_in(x)  # shape: [B, 1024, H, W]
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> (b h w) c p1 p2', p1=self.patch_size, p2=self.patch_size)
-        x_fft = torch.fft.rfft2(x_patch)  # shape: [4, 512, 8, 5]
+        x_fft = torch.fft.rfft2(x_patch)  # shape: [4, 1024, 8, 5]
 
         # ✅ 正确扩展 self.fft 以匹配 x_fft 的形状
-        expanded_fft = self.fft.unsqueeze(0).unsqueeze(1)  # [1, 1, 512, 8, 5]
+        expanded_fft = self.fft.unsqueeze(0).unsqueeze(1)  # [1, 1, 1024, 8, 5]
         expanded_fft = expanded_fft.expand(
             B * h_blocks * w_blocks,  # 4
             -1,                       # 1
-            -1,                       # 512
+            -1,                       # 1024
             -1,                       # 8
             -1                        # 5
-        )  # shape: [4, 1, 512, 8, 5]
+        )  # shape: [4, 1, 1024, 8, 5]
 
         # ✅ 现在可以安全地进行频域乘法
-        x_fft = x_fft * expanded_fft  # shape: [4, 512, 8, 5]
+        x_fft = x_fft * expanded_fft  # shape: [4, 1024, 8, 5]
 
         # 逆变换回空域并恢复形状
-        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))  # shape: [4, 512, 8, 8]
-        print(f"x shape after irfft2: {x.shape}")  # 应为 [4, 512, 8, 8]
+        x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))  # shape: [4, 1024, 8, 8]
+        print(f"x shape after irfft2: {x.shape}")  # 应为 [4, 1024, 8, 8]
 
-        # ✅ 正确重组形状
+        # ✅ 正确重组形状（适配 5D 输入）
         x = rearrange(x, '(b h w) c p1 p2 -> b c (h p1) (w p2)', h=h_blocks, w=w_blocks, b=B)
-        # 输出 shape: [B, 512, H, W]
+        # 输出 shape: [B, 1024, H, W]
 
         x = self.dwconv(x)
-        x1, x2 = x.chunk(2, dim=1)
+        x1, x2 = x.chunk(2, dim=1)  # 拆分 1024 → 512 + 512
         x = F.gelu(x1) * x2
-        x = self.project_out(x)
+        x = self.project_out(x)  # 压缩回 dim
         return x
-
 
 def to_3d(x):
     return rearrange(x, 'b c h w -> b (h w) c')
