@@ -61,6 +61,8 @@ class DFFN(nn.Module):
         w_blocks = W // self.patch_size
 
         # 确保 B * h_blocks * w_blocks 等于输入张量的第一个维度
+        #assert B * h_blocks * w_blocks == x.size(0), f"Shape mismatch: {B * h_blocks * w_blocks} != {x.size(0)}"
+        print(f"B: {B}, h_blocks: {h_blocks}, w_blocks: {w_blocks}, x.size(0): {x.size(0)}")  # 添加日志
         assert B * h_blocks * w_blocks == x.size(0), f"Shape mismatch: {B * h_blocks * w_blocks} != {x.size(0)}"
 
         # ✅ project_in 扩展通道数为 512
@@ -285,6 +287,7 @@ class NAFBlock(nn.Module):
         mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
         mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+        print(f"Padded image size: {x.size()}")  # 添加日志
         return x
 
     def forward(self, x):
