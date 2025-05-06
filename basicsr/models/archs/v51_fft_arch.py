@@ -75,6 +75,14 @@ class DFFN(nn.Module):
             self.fft.size(3),
             self.fft.size(4)
         )
+        
+        # 打印形状用于调试
+        print(f"x_fft shape: {x_fft.shape}")
+        print(f"expanded_fft shape: {expanded_fft.shape}")
+
+        # 确保 expanded_fft 的形状与 x_fft 匹配
+        if expanded_fft.shape != x_fft.shape:
+            expanded_fft = expanded_fft.expand_as(x_fft)  # ← 动态扩展形状
 
         x_fft = x_fft * expanded_fft
 
