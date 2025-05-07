@@ -238,9 +238,9 @@ class NAFBlock(nn.Module):
             self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
             decoder_in_channels.append(in_channels)
 
-        # 修改这里，保证输入通道数和编码器输出通道数一致，输出通道数和 decoder 输入通道数一致
-        for ec, dc in zip(enc_channels, decoder_in_channels):
-            self.channel_adapters.append(nn.Conv2d(ec, dc, 1, bias=False))
+        # 修改这里，保证输入通道数和编码器输出通道数一致
+        for ec in enc_channels:
+            self.channel_adapters.append(nn.Conv2d(ec, ec, 1, bias=False))
 
         fpn_channels = [width * (2 ** i) for i in reversed(range(len(enc_blk_nums)))]
         for c in fpn_channels:
