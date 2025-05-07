@@ -254,7 +254,6 @@ class NAFBlock(nn.Module):
         self.final_conv = nn.Conv2d(width, img_channel, kernel_size=1)
 
     def forward(self, x):
-        x = self._check_image_size(x)
         encs = []
         for encoder in self.encoders:
             x = encoder(x)
@@ -288,7 +287,14 @@ class NAFBlock(nn.Module):
         fused = sum(F.interpolate(f, size=max_size, mode='bilinear') for f in fpn_features)
         x = x + fused
         x = self.final_conv(x)
-        return x[:, :, :x.size(2) - self.mod_pad_h, :x.size(3) - self.mod_pad_w]
+        return x
+
+    def _check_image_size(self, x):
+        _, _, h, w = x.size()
+        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
+        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
+        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+        return x
 
 
 
