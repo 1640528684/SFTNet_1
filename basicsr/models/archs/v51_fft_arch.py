@@ -237,9 +237,10 @@ class NAFBlock(nn.Module):
             self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
             decoder_in_channels.append(in_channels)
 
-        # 修正这里的 channel_adapters 定义，确保输出通道数与 FPNBlock 的输入通道数一致
+        # 修正 channel_adapters 的定义，确保输入通道数与编码器的输出通道数一致
+        target_channels = width  # 目标通道数为 width=64
         for ec in enc_channels:
-            self.channel_adapters.append(nn.Conv2d(ec, width, 1, bias=False))  # 将所有编码器输出通道数转换为 width=64
+            self.channel_adapters.append(nn.Conv2d(ec, target_channels, 1, bias=False))
 
         fpn_channels = [width * (2 ** i) for i in reversed(range(len(enc_blk_nums)))]
         for c in fpn_channels:
