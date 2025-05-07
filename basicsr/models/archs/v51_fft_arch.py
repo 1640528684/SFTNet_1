@@ -287,22 +287,15 @@ class NAFBlock(nn.Module):
 
 
 
-class v51fftLocal(Local_Base, NAFBlock):  # 修改基类为 NAFBlock
+class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
     def __init__(self, *args, train_size=(1, 3, 256, 256), fast_imp=False, **kwargs):
-        Local_Base.__init__(self)
         NAFBlock.__init__(self, *args, **kwargs)
+        Local_Base.__init__(self)
         N, C, H, W = train_size
         base_size = (int(H * 1.5), int(W * 1.5))
         self.eval()
         with torch.no_grad():
             self.convert(base_size=base_size, train_size=train_size, fast_imp=fast_imp)
-
-    def _check_image_size(self, x):
-        _, _, h, w = x.size()
-        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
-        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
-        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        return x
 
 
 if __name__ == '__main__':
