@@ -297,6 +297,7 @@ class NAFBlock(nn.Module):
         return x[:, :, :x.size(2) - self.mod_pad_h, :x.size(3) - self.mod_pad_w]
 
 
+
 class v51fftLocal(Local_Base, NAFBlock):  # 修改基类为 NAFBlock
     def __init__(self, *args, train_size=(1, 3, 256, 256), fast_imp=False, **kwargs):
         Local_Base.__init__(self)
