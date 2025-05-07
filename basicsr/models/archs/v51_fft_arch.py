@@ -287,10 +287,10 @@ class NAFBlock(nn.Module):
 
 
 
-class v51fftLocal(Local_Base, NAFBlock):  # 修改基类为 NAFBlock
+class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
     def __init__(self, *args, train_size=(1, 3, 256, 256), fast_imp=False, **kwargs):
-        Local_Base.__init__(self)
         NAFBlock.__init__(self, *args, **kwargs)
+        Local_Base.__init__(self)
         N, C, H, W = train_size
         base_size = (int(H * 1.5), int(W * 1.5))
         self.eval()
