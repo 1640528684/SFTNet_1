@@ -217,7 +217,6 @@ class NAFBlock(nn.Module):
             self.encoders.append(nn.Sequential(*layers))
             enc_channels.append(out_channels)
 
-        # 使用预存的 enc_channels 列表
         in_channels_middle = enc_channels[-1]
 
         for _ in range(middle_blk_num):
@@ -238,9 +237,9 @@ class NAFBlock(nn.Module):
             self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
             decoder_in_channels.append(in_channels)
 
-        # 修改这里，保证输入通道数和编码器输出通道数一致
+        # 修正这里的 channel_adapters 定义，确保输出通道数与 FPNBlock 的输入通道数一致
         for ec in enc_channels:
-            self.channel_adapters.append(nn.Conv2d(ec, ec, 1, bias=False))
+            self.channel_adapters.append(nn.Conv2d(ec, width, 1, bias=False))  # 将所有编码器输出通道数转换为 width=64
 
         fpn_channels = [width * (2 ** i) for i in reversed(range(len(enc_blk_nums)))]
         for c in fpn_channels:
@@ -248,16 +247,6 @@ class NAFBlock(nn.Module):
             self.fpn.append(FPNBlock(c, width))
 
         self.final_conv = nn.Conv2d(width, img_channel, kernel_size=1)
-
-        self.mod_pad_h = 0
-        self.mod_pad_w = 0
-
-    def _check_image_size(self, x):
-        _, _, h, w = x.size()
-        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
-        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
-        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        return x
 
     def forward(self, x):
         x = self._check_image_size(x)
@@ -275,7 +264,7 @@ class NAFBlock(nn.Module):
                 self.decoders, self.ups, self.fpn
         )):
             enc_skip = encs[-i - 1]
-            enc_skip = self.channel_adapters[i](enc_skip)
+            enc_skip = self.channel_adapters[i](enc_skip)  # 将编码器输出通道数转换为 width=64
             target_size = x.size()[2:]
             enc_skip = F.interpolate(enc_skip, size=target_size, mode='bilinear')
 
