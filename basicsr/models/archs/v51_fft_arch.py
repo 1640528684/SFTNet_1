@@ -297,6 +297,13 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
         with torch.no_grad():
             self.convert(base_size=base_size, train_size=train_size, fast_imp=fast_imp)
 
+    def _check_image_size(self, x):
+        _, _, h, w = x.size()
+        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
+        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
+        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+        return x
+
 
 if __name__ == '__main__':
     img_channel = 3
