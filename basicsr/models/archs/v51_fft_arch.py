@@ -205,8 +205,12 @@ class NAFBlock(nn.Module):
         enc_channels = []
 
         for i in range(len(enc_blk_nums)):
-            in_channels = img_channel if i == 0 else width * (2 ** (i - 1))
-            out_channels = width * (2 ** i)
+            if i == 0:
+                in_channels = img_channel
+                out_channels = width
+            else:
+                in_channels = width * (2 ** (i - 1))
+                out_channels = width * (2 ** i)
             layers = [
                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
                 nn.ReLU()
