@@ -229,6 +229,9 @@ class NAFBlock(nn.Module):
         in_channels_middle = enc_channels[-1]
         for _ in range(middle_blk_num):
             self.middle_blocks.append(TransformerBlock(in_channels_middle))
+        
+        # 添加一个通道压缩层，将中间块输出的通道数压缩到width
+        self.middle_proj = nn.Conv2d(enc_channels[-1], width, kernel_size=1, bias=False)
 
         # 定义解码器
         decoder_in_channels = []
@@ -269,6 +272,9 @@ class NAFBlock(nn.Module):
         # 中间Transformer块
         for blk in self.middle_blocks:
             x = blk(x)
+        
+        # 使用middle_proj将中间块输出的通道数调整为width
+        x = self.middle_proj(x)  # 新增这一行
 
         # 解码器和FPN部分
         fpn_features = []
