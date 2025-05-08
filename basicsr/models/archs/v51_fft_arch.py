@@ -204,6 +204,7 @@ class NAFBlock(nn.Module):
 
         enc_channels = []
 
+        # 定义编码器
         for i in range(len(enc_blk_nums)):
             if i == 0:
                 in_channels = img_channel
@@ -221,11 +222,12 @@ class NAFBlock(nn.Module):
             self.encoders.append(nn.Sequential(*layers))
             enc_channels.append(out_channels)
 
+        # 定义中间的Transformer块
         in_channels_middle = enc_channels[-1]
-
         for _ in range(middle_blk_num):
             self.middle_blocks.append(TransformerBlock(in_channels_middle))
 
+        # 定义解码器
         decoder_in_channels = []
         for i in range(len(dec_blk_nums)):
             in_channels = width * (2 ** (len(enc_blk_nums) - i - 1))
@@ -241,10 +243,11 @@ class NAFBlock(nn.Module):
             self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
             decoder_in_channels.append(in_channels)
 
-        # 修正 channel_adapters 的定义，确保输入通道数与编码器的输出通道数一致
+        # 定义channel_adapters，确保输入通道数与编码器的输出通道数一致
         for ec in enc_channels:
             self.channel_adapters.append(nn.Conv2d(ec, width, 1, bias=False))
 
+        # 定义FPNBlock
         fpn_channels = [width * (2 ** i) for i in reversed(range(len(enc_blk_nums)))]
         for c in fpn_channels:
             print(f"Initializing FPNBlock with in_channels={c}, out_channels={width}")
@@ -253,15 +256,18 @@ class NAFBlock(nn.Module):
         self.final_conv = nn.Conv2d(width, img_channel, kernel_size=1)
 
     def forward(self, x):
+        # 编码器部分
         encs = []
         for encoder in self.encoders:
             x = encoder(x)
             encs.append(x)
             x = F.max_pool2d(x, 2)
 
+        # 中间Transformer块
         for blk in self.middle_blocks:
             x = blk(x)
 
+        # 解码器和FPN部分
         fpn_features = []
         for i, (decoder, up, fpn_block) in enumerate(zip(
                 self.decoders, self.ups, self.fpn
@@ -281,6 +287,7 @@ class NAFBlock(nn.Module):
             fpn_out = fpn_block(x, enc_skip)
             fpn_features.append(fpn_out)
 
+        # 特征融合和最终卷积
         max_size = (max(f.size(2) for f in fpn_features),
                     max(f.size(3) for f in fpn_features))
         fused = sum(F.interpolate(f, size=max_size, mode='bilinear') for f in fpn_features)
@@ -294,7 +301,6 @@ class NAFBlock(nn.Module):
         mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
         return x
-
 
 
 class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
