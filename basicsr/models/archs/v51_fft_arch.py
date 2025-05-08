@@ -255,21 +255,22 @@ class NAFBlock(nn.Module):
                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
                 nn.ReLU()
             ]
-        for _ in range(dec_blk_nums[i] - 1):
-            layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
-            layers.append(nn.ReLU())
-        self.decoders.append(nn.Sequential(*layers))
-        self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+            for _ in range(dec_blk_nums[i] - 1):
+                layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
+                layers.append(nn.ReLU())
+            self.decoders.append(nn.Sequential(*layers))
+            self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
         
         # 定义channel_adapters，确保输入通道数与编码器的输出通道数一致
-        for ec in enc_channels:
-            self.channel_adapters.append(nn.Conv2d(ec, width, 1, bias=False))
+        for c in enc_channels:
+            self.channel_adapters.append(
+                nn.Conv2d(c, width, kernel_size=1, bias=False)
+            )
 
         # 定义FPNBlock
-        fpn_channels = [width * (2 ** i) for i in reversed(range(len(enc_blk_nums)))]
-        for c in fpn_channels:
-            print(f"Initializing FPNBlock with in_channels={c}, out_channels={width}")
-            self.fpn.append(FPNBlock(c, width))
+        for _ in range(len(enc_blk_nums)):
+            print(f"Initializing FPNBlock with in_channels={width}, out_channels={width}")
+            self.fpn.append(FPNBlock(width, width))
 
         self.final_conv = nn.Conv2d(width, img_channel, kernel_size=1)
 
