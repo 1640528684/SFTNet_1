@@ -276,7 +276,7 @@ class NAFBlock(nn.Module):
                 self.decoders, self.ups, self.fpn
         )):
             enc_skip = encs[-i - 1]
-            enc_skip = self.channel_adapters[i](enc_skip)  # 将编码器输出通道数转换为 width=64
+            enc_skip = self.channel_adapters[-i - 1](enc_skip)
             target_size = x.size()[2:]
             enc_skip = F.interpolate(enc_skip, size=target_size, mode='bilinear')
 
