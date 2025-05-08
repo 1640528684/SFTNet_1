@@ -235,20 +235,32 @@ class NAFBlock(nn.Module):
 
         # 定义解码器
         decoder_in_channels = []
+        # for i in range(len(dec_blk_nums)):
+        #     in_channels = width * (2 ** (len(enc_blk_nums) - i - 1))
+        #     out_channels = width * (2 ** (len(enc_blk_nums) - i - 2)) if i < len(dec_blk_nums) - 1 else width
+        #     layers = [
+        #         nn.Conv2d(in_channels, out_channels, 3, padding=1),
+        #         nn.ReLU()
+        #     ]
+        #     for _ in range(dec_blk_nums[i] - 1):
+        #         layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
+        #         layers.append(nn.ReLU())
+        #     self.decoders.append(nn.Sequential(*layers))
+        #     self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+        #     decoder_in_channels.append(in_channels)
         for i in range(len(dec_blk_nums)):
-            in_channels = width * (2 ** (len(enc_blk_nums) - i - 1))
-            out_channels = width * (2 ** (len(enc_blk_nums) - i - 2)) if i < len(dec_blk_nums) - 1 else width
+            in_channels = width
+            out_channels = width
             layers = [
                 nn.Conv2d(in_channels, out_channels, 3, padding=1),
                 nn.ReLU()
             ]
-            for _ in range(dec_blk_nums[i] - 1):
-                layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
-                layers.append(nn.ReLU())
-            self.decoders.append(nn.Sequential(*layers))
-            self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
-            decoder_in_channels.append(in_channels)
-
+        for _ in range(dec_blk_nums[i] - 1):
+            layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
+            layers.append(nn.ReLU())
+        self.decoders.append(nn.Sequential(*layers))
+        self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+        
         # 定义channel_adapters，确保输入通道数与编码器的输出通道数一致
         for ec in enc_channels:
             self.channel_adapters.append(nn.Conv2d(ec, width, 1, bias=False))
