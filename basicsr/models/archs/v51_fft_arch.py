@@ -51,7 +51,7 @@ class DFFN(nn.Module):
         self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, groups=dim, bias=bias)
         self.project_in = nn.Conv2d(dim, self.hidden_features, 1, bias=bias)  # 输入→隐藏层通道
         # 关键修正：project_out 的输入通道应为 hidden_features // 2（拆分后通道数）
-        self.project_out = nn.Conv2d(self.hidden_features // 2, dim, 1, bias=bias)  
+        self.project_out = nn.Conv2d(self.hidden_features // 2, dim, 1, bias=bias)
 
     def forward(self, x):
         B, C, H, W = x.shape
@@ -59,7 +59,7 @@ class DFFN(nn.Module):
         w_blocks = W // self.patch_size
 
         x = self.project_in(x)  # [B, hidden_features=512, H, W]
-        x_patch = rearrange(x, 'b c (h p1) (w p2) -> b h w c p1 p2', 
+        x_patch = rearrange(x, 'b c (h p1) (w p2) -> b h w c p1 p2',
                             p1=self.patch_size, p2=self.patch_size, h=h_blocks, w=w_blocks)
         x_fft_input = rearrange(x_patch, 'b h w c p1 p2 -> (b h w) c p1 p2')
         x_fft = torch.fft.rfft2(x_fft_input)
@@ -74,6 +74,7 @@ class DFFN(nn.Module):
         x = F.gelu(x1) * x2  # 通道数保持 256
         x = self.project_out(x)  # 正确输入通道：256 → 输出通道：dim（如 256）
         return x
+
 
 def to_3d(x):
     return rearrange(x, 'b c h w -> b (h w) c')
@@ -143,6 +144,7 @@ class AttentionBlock(nn.Module):
         out = torch.bmm(value, attention.permute(0, 2, 1)).view(B, C, H, W)
         return out
 
+
 class TransformerBlock(nn.Module):
     def __init__(self, dim, ffn_expansion_factor=1, bias=False, LayerNorm_type='WithBias', att=False):
         super(TransformerBlock, self).__init__()
@@ -155,6 +157,7 @@ class TransformerBlock(nn.Module):
         x = x + self.attention(self.norm1(x))
         x = x + self.ffn(self.norm2(x))
         return x
+
 
 class FPNBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -175,7 +178,7 @@ class FPNBlock(nn.Module):
         """
         # Step 1: Lateral connection (1×1 Conv)
         lateral = self.lateral_conv(x)
-        
+
         # Step 2: Upsample top-down feature to match spatial dimensions of lateral
         if top_down is not None:
             if top_down.shape != lateral.shape:
@@ -334,3 +337,4 @@ if __name__ == '__main__':
     from ptflops import get_model_complexity_info
     macs, params = get_model_complexity_info(net, inp_shape, verbose=False, print_per_layer_stat=False)
     print(f"MACs: {macs:.2f} G, Params: {params:.2f} M")
+
