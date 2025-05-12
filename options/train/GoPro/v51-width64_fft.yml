@@ -75,7 +75,7 @@ train:
 
   # losses
   pixel_opt:
-    type: PSNRLoss
+    type: L1Loss #PSNRLoss
     loss_weight: 1
     reduction: mean
 
