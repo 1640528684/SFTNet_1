@@ -9,7 +9,7 @@ name: v51_fft-GoPro-width64
 model_type: ImageRestorationModel
 scale: 1
 num_gpu: 4
-manual_seed: 10
+manual_seed: 10 
 
 datasets:
   train:
@@ -88,8 +88,10 @@ train:
     type: PerceptualLoss
     loss_weight: 1
     reduction: mean
-    layer_weights:
-      conv_5_1: 1.0
+    use_l1_loss: false 
+    feature_extract_layers: ['3', '8', '15', '22']  # 定义提取特征的层编号
+    # layer_weights:
+    #   conv_5_1: 1.0
     vgg_type: vgg19
 
 # validation settings

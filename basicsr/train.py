@@ -249,22 +249,6 @@ def main():
                 logger.info(f'New best model at iter {current_iter} (loss: {best_loss:.4f})')
                 #model.save(start_epoch, current_iter, is_best=True)
 
-            # 保存检查点
-            # if current_iter % opt['logger']['save_checkpoint_freq'] == 0:
-            #     logger.info('Saving models and training states.')
-            #     model.save(start_epoch, current_iter)
-
-            #     # 保存训练状态到文件
-            #     if opt['rank'] == 0:
-            #         save_states = {
-            #             'iter': current_iter,
-            #             'epoch': start_epoch,
-            #             'state_dict': model.get_state_dict(),
-            #             'optimizers': model.get_optimizers(),
-            #             'schedulers': model.get_schedulers()
-            #         }
-            #         state_path = osp.join(state_folder_path, f"{current_iter}.state")
-            #         torch.save(save_states, state_path)
 
             # 验证
             if opt.get('val') and current_iter % opt['val']['val_freq'] == 0:

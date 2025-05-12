@@ -6,6 +6,8 @@
 # ------------------------------------------------------------------------
 import torch
 from torch import nn as nn
+from torchvision.models import vgg19
+from collections import namedtuple
 from torch.nn import functional as F
 import numpy as np
 
@@ -145,3 +147,35 @@ class FFTLoss(nn.Module):
         target_fft = torch.fft.fft2(target, dim=(-2, -1))
         target_fft = torch.stack([target_fft.real, target_fft.imag], dim=-1)
         return self.loss_weight * l1_loss(pred_fft, target_fft, weight, reduction=self.reduction)
+
+class PerceptualLoss(nn.Module):
+    def __init__(self, feature_extract_layers=None, use_l1_loss=False):
+        super(PerceptualLoss, self).__init__()
+        if feature_extract_layers is None:
+            # 默认提取第3、8、15、22层的特征
+            feature_extract_layers = ['3', '8', '15', '22']
+        self.feature_extract_layers = feature_extract_layers
+        self.use_l1_loss = use_l1_loss
+
+        vgg = vgg19(pretrained=True).features
+        self.model = nn.Sequential()
+        for layer in range(max(map(int, feature_extract_layers))+1):
+            self.model.add_module(str(layer), vgg[layer])
+        
+        # 冻结参数
+        for param in self.model.parameters():
+            param.requires_grad = False
+        
+        if self.use_l1_loss:
+            self.loss = nn.L1Loss()
+        else:
+            self.loss = nn.MSELoss()
+
+    def forward(self, pred, target):
+        loss = 0.0
+        for name, module in self.model._modules.items():
+            pred = module(pred)
+            target = module(target)
+            if name in self.feature_extract_layers:
+                loss += self.loss(pred, target)
+        return loss

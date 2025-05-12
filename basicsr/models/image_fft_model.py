@@ -58,11 +58,19 @@ class ImageFftModel(BaseModel):
         else:
             self.cri_fft = None
 
+        # if train_opt.get('perceptual_loss_opt'):
+        #     from basicsr.models.losses import PerceptualLoss
+        #     self.cri_perceptual = PerceptualLoss(
+        #         layer_weights=train_opt['perceptual_loss_opt'].get('layer_weights', {'conv_5_1': 1.0}),
+        #         vgg_type=train_opt['perceptual_loss_opt'].get('vgg_type', 'vgg19')
+        #     ).to(self.device)
+        # else:
+        #     self.cri_perceptual = None
         if train_opt.get('perceptual_loss_opt'):
             from basicsr.models.losses import PerceptualLoss
             self.cri_perceptual = PerceptualLoss(
-                layer_weights=train_opt['perceptual_loss_opt'].get('layer_weights', {'conv_5_1': 1.0}),
-                vgg_type=train_opt['perceptual_loss_opt'].get('vgg_type', 'vgg19')
+                layer_weights=train_opt['perceptual_loss_opt'].get('layer_weights', {'3': 1.0, '8': 1.0, '15': 1.0, '22': 1.0}),
+                use_l1_loss=train_opt['perceptual_loss_opt'].get('use_l1_loss', False)
             ).to(self.device)
         else:
             self.cri_perceptual = None
