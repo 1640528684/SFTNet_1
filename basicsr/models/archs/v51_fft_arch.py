@@ -55,6 +55,11 @@ class DFFN(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
+        # === 自动 padding 到 patch_size 的整数倍 ===
+        pad_h = (self.patch_size - H % self.patch_size) % self.patch_size
+        pad_w = (self.patch_size - W % self.patch_size) % self.patch_size
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, (0, pad_w, 0, pad_h))  # (left, right, top, bottom)
         h_blocks = H // self.patch_size
         w_blocks = W // self.patch_size
 
@@ -68,6 +73,9 @@ class DFFN(nn.Module):
         x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
         x = rearrange(x, '(b h w) c p1 p2 -> b h w c p1 p2', b=B, h=h_blocks, w=w_blocks)
         x = rearrange(x, 'b h w c p1 p2 -> b c (h p1) (w p2)', p1=self.patch_size, p2=self.patch_size)
+        
+        # === 恢复原始图像大小 ===
+        x = x[:, :, :H, :W]  # 剪裁回原始尺寸
 
         x = self.dwconv(x)  # [B, hidden_features=512, H, W]
         x1, x2 = x.chunk(2, dim=1)  # 拆分为两个 256 通道
