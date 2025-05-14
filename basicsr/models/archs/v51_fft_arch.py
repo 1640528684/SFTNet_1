@@ -364,7 +364,7 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
         mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
         mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        return x
+        return x,h,w
 
 
 if __name__ == '__main__':
