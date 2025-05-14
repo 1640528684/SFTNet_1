@@ -20,6 +20,8 @@ from basicsr.models import create_model
 from basicsr.utils import (MessageLogger, check_resume, get_env_info, get_root_logger, get_time_str, init_tb_logger, init_wandb_logger, make_exp_dirs, mkdir_and_rename, set_random_seed)
 from basicsr.utils.dist_util import get_dist_info, init_dist
 from basicsr.utils.options import dict2str, parse
+import math
+from torchvision import transforms  # 引入transforms模块
 
 
 def parse_options(is_train=True):
@@ -63,11 +65,35 @@ def init_loggers(opt):
         init_wandb_logger(opt)
     tb_logger = init_tb_logger(log_dir=osp.join('tb_logger', opt['name'])) if opt['logger'].get('use_tb_logger') else None
     return logger, tb_logger
-
+# 自定义调整图像尺寸的函数
+def adjust_image_size(img, patch_size=16):
+    """
+    将图像调整为最接近原尺寸但不小于原尺寸且是patch_size的整数倍的尺寸。
+    :param img: 输入的PIL图像
+    :param patch_size: 需要调整到的patch大小，默认为16
+    :return: 调整尺寸后的图像
+    """
+    ow, oh = img.size
+    h = int(math.ceil(oh / patch_size) * patch_size)
+    w = int(math.ceil(ow / patch_size) * patch_size)
+    if (h == oh) and (w == ow):
+        return img
+    return transforms.Resize((h, w))(img)
 
 def create_train_val_dataloader(opt, logger):
     train_loader, val_loader = None, None
     for phase, dataset_opt in opt['datasets'].items():
+        # 创建transform列表
+        transform_list = [
+            transforms.Lambda(lambda img: adjust_image_size(img, dataset_opt.get('patch_size', 16)))
+        ]
+        # 如果配置中有其他transforms，则合并它们
+        if 'transforms' in dataset_opt:
+            for trans in dataset_opt['transforms']:
+                transform_list.append(getattr(transforms, trans[0])(**trans[1]))
+        # 设置dataset的transform
+        dataset_opt['transform'] = transforms.Compose(transform_list)
+        
         if phase == 'train':
             dataset_enlarge_ratio = dataset_opt.get('dataset_enlarge_ratio', 1)
             train_set = create_dataset(dataset_opt)
@@ -79,6 +105,7 @@ def create_train_val_dataloader(opt, logger):
                 dist=opt['dist'],
                 sampler=train_sampler,
                 seed=opt['manual_seed'])
+            logger.info(f"Training data transformations: {dataset_opt['transform']}")
 
             # 支持未标记数据
             if dataset_opt.get('use_unlabeled', False):
@@ -116,6 +143,8 @@ def create_train_val_dataloader(opt, logger):
                 seed=opt['manual_seed'])
             logger.info(
                 f'Number of val images/folders in {dataset_opt["name"]}: {len(val_set)}')
+            logger.info(f"Validation data transformations: {dataset_opt['transform']}")
+            
     return train_loader, train_sampler, val_loader, total_epochs, total_iters
 
 
