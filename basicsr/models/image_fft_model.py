@@ -10,6 +10,7 @@ from basicsr.models.archs import define_network
 from basicsr.models.base_model import BaseModel
 from basicsr.utils import get_root_logger, imwrite, tensor2img
 from basicsr.utils.dist_util import get_dist_info
+from basicsr.models.losses import SSIMLoss
 
 loss_module = importlib.import_module('basicsr.models.losses')
 metric_module = importlib.import_module('basicsr.metrics')
@@ -42,6 +43,14 @@ class ImageFftModel(BaseModel):
         train_opt = self.opt['train']
 
         # define losses
+        if train_opt.get('ssim_loss_opt'):
+            ssim_type = train_opt['ssim_loss_opt'].pop('type')
+            cri_ssim_cls = getattr(loss_module, ssim_type)  # 动态获取类
+            self.cri_ssim = cri_ssim_cls(**train_opt['ssim_loss_opt']).to(self.device)
+            self.ssim_weight = train_opt['ssim_loss_opt'].get('weight', 1.0)  # 获取权重，默认为1
+        else:
+            self.cri_ssim = None
+            
         if train_opt.get('pixel_opt'):
             pixel_type = train_opt['pixel_opt'].pop('type')
             cri_pix_cls = getattr(loss_module, pixel_type)
@@ -58,14 +67,6 @@ class ImageFftModel(BaseModel):
         else:
             self.cri_fft = None
 
-        # if train_opt.get('perceptual_loss_opt'):
-        #     from basicsr.models.losses import PerceptualLoss
-        #     self.cri_perceptual = PerceptualLoss(
-        #         layer_weights=train_opt['perceptual_loss_opt'].get('layer_weights', {'conv_5_1': 1.0}),
-        #         vgg_type=train_opt['perceptual_loss_opt'].get('vgg_type', 'vgg19')
-        #     ).to(self.device)
-        # else:
-        #     self.cri_perceptual = None
         if train_opt.get('perceptual_loss_opt'):
             from basicsr.models.losses import PerceptualLoss
             self.cri_perceptual = PerceptualLoss(
@@ -221,6 +222,13 @@ class ImageFftModel(BaseModel):
 
             l_total = 0
             loss_dict = OrderedDict()
+        
+            # 如果有定义 cri_ssim 并且不为空，则计算 SSIM 损失
+            if self.cri_ssim is not None:
+                l_ssim = self.ssim_weight * self.cri_ssim(self.output, self.gt)
+                l_total += l_ssim
+                loss_dict['l_ssim'] = l_ssim.item()
+        
             # 像素损失
             if self.cri_pix:
                 l_pix = 0.
@@ -241,7 +249,7 @@ class ImageFftModel(BaseModel):
                 l_total += l_perceptual
                 loss_dict['l_perceptual'] = l_perceptual
 
-            l_total.backward()
+        l_total.backward()
 
         use_grad_clip = self.opt['train'].get('use_grad_clip', True)
         if use_grad_clip:

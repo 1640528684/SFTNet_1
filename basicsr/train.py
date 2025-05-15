@@ -266,7 +266,7 @@ def main():
                 # TensorBoard 记录
                 if tb_logger:
                     for k, v in log_vars.items():
-                        if k in ['l_total', 'l_pix', 'l_perceptual', 'l_gan']:
+                        if k in ['l_total', 'l_pix', 'l_perceptual', 'l_gan', 'l_ssim']:
                             tb_logger.add_scalar(f'train/{k}', v, current_iter)
                     # 确保使用列表中的第一个元素
                     tb_logger.add_scalar('train/lr', log_vars['lrs'][0], current_iter)
@@ -312,7 +312,7 @@ def main():
                     # for k, v in val_log.items():
                     #     tb_logger.add_scalar(f'val/{k}', v, current_iter)
                     for k, v in log_vars.items():
-                        if k in ['l_total', 'l_pix', 'l_perceptual', 'l_gan']:
+                        if k in ['l_total', 'l_pix', 'l_perceptual', 'l_gan', 'l_ssim']:
                             tb_logger.add_scalar(f'train/{k}', v, current_iter)
                     tb_logger.add_scalar('train/lr', log_vars['lrs'][0], current_iter)
                     tb_logger.flush()

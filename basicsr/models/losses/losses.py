@@ -179,3 +179,72 @@ class PerceptualLoss(nn.Module):
             if name in self.feature_extract_layers:
                 loss += self.loss(pred, target)
         return loss
+
+#新增SSIM损失
+def _fspecial_gauss_1d(size, sigma):
+    """Create Gaussian kernel for convolution"""
+    coords = torch.arange(size).float()
+    coords -= size // 2
+    g = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
+    g /= g.sum()
+    return g.view(1, 1, -1)
+def ssim(img1, img2, window_size=11, channel=3, size_average=True):
+    """Differentiable SSIM function"""
+    # img1, img2: [B, C, H, W]
+    window = _fspecial_gauss_1d(window_size, 1.5).to(img1.device)
+    window = window.repeat(channel, 1, 1)
+
+    mu1 = F.conv2d(img1, window, padding=window_size//2, groups=channel)
+    mu2 = F.conv2d(img2, window, padding=window_size//2, groups=channel)
+
+    mu1_sq = mu1.pow(2)
+    mu2_sq = mu2.pow(2)
+    mu1_mu2 = mu1 * mu2
+
+    sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size//2, groups=channel) - mu1_sq
+    sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size//2, groups=channel) - mu2_sq
+    sigma12 = F.conv2d(img1 * img2, window, padding=window_size//2, groups=channel) - mu1_mu2
+
+    C1 = 0.01**2
+    C2 = 0.03**2
+
+    numerator = (2*mu1_mu2 + C1)*(2*sigma12 + C2)
+    denominator = (mu1_sq + mu2_sq + C1)*(sigma1_sq + sigma2_sq + C2)
+
+    ssim_index = numerator / denominator
+    if size_average:
+        return ssim_index.mean()
+    else:
+        return ssim_index.mean([1,2,3]).mean()
+class SSIMLoss(nn.Module):
+    """Differentiable SSIM loss.
+
+    Args:
+        loss_weight (float): Weight of this loss item.
+        reduction (str): Specifies the reduction to apply to the output.
+            Supported choices are 'none' | 'mean' | 'sum'. Default: 'mean'.
+    """
+
+    def __init__(self, loss_weight=1.0, reduction='mean'):
+        super(SSIMLoss, self).__init__()
+        if reduction not in ['none', 'mean', 'sum']:
+            raise ValueError(f'Unsupported reduction mode: {reduction}. '
+                             f'Supported ones are: {_reduction_modes}')
+        self.loss_weight = loss_weight
+        self.reduction = reduction
+
+    def forward(self, pred, target, weight=None, **kwargs):
+        """
+        Args:
+            pred (Tensor): of shape (N, C, H, W). Predicted tensor.
+            target (Tensor): of shape (N, C, H, W). Ground truth tensor.
+            weight (Tensor, optional): Not used here since SSIM is a structural loss.
+        """
+        # Ignore weight for SSIM loss
+        loss = 1.0 - ssim(pred, target)
+        if self.reduction == 'mean':
+            loss = loss.mean()
+        elif self.reduction == 'sum':
+            loss = loss.sum()
+        # 'none' returns scalar per batch
+        return self.loss_weight * loss
