@@ -41,15 +41,14 @@ class ImageFftModel(BaseModel):
     def init_training_settings(self):
         self.net_g.train()
         train_opt = self.opt['train']
-
-        # define losses
-        if train_opt.get('ssim_loss_opt'):
-            ssim_type = train_opt['ssim_loss_opt'].pop('type')
-            cri_ssim_cls = getattr(loss_module, ssim_type)  # 动态获取类
-            self.cri_ssim = cri_ssim_cls(**train_opt['ssim_loss_opt']).to(self.device)
-            self.ssim_weight = train_opt['ssim_loss_opt'].get('weight', 1.0)  # 获取权重，默认为1
-        else:
-            self.cri_ssim = None
+        
+        # if train_opt.get('ssim_loss_opt'):
+        #     ssim_type = train_opt['ssim_loss_opt'].pop('type')
+        #     cri_ssim_cls = getattr(loss_module, ssim_type)  # 动态获取类
+        #     self.cri_ssim = cri_ssim_cls(**train_opt['ssim_loss_opt']).to(self.device)
+        #     self.ssim_weight = train_opt['ssim_loss_opt'].get('weight', 1.0)  # 获取权重，默认为1
+        # else:
+        #     self.cri_ssim = None
             
         if train_opt.get('pixel_opt'):
             pixel_type = train_opt['pixel_opt'].pop('type')
@@ -224,10 +223,10 @@ class ImageFftModel(BaseModel):
             loss_dict = OrderedDict()
         
             # 如果有定义 cri_ssim 并且不为空，则计算 SSIM 损失
-            if self.cri_ssim is not None:
-                l_ssim = self.ssim_weight * self.cri_ssim(self.output, self.gt)
-                l_total += l_ssim
-                loss_dict['l_ssim'] = l_ssim.item()
+            # if self.cri_ssim is not None:
+            #     l_ssim = self.ssim_weight * self.cri_ssim(self.output, self.gt)
+            #     l_total += l_ssim
+            #     loss_dict['l_ssim'] = l_ssim.item()
         
             # 像素损失
             if self.cri_pix:

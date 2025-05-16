@@ -76,7 +76,7 @@ train:
   # losses
   pixel_opt:
     type: L1Loss #PSNRLoss
-    loss_weight: 2 #1
+    loss_weight: 1.0 #1
     reduction: mean
 
   fft_loss_opt:
@@ -86,7 +86,7 @@ train:
 
   perceptual_loss_opt:
     type: PerceptualLoss
-    loss_weight: 0.1 #1
+    loss_weight: 0.05 #1
     reduction: mean
     use_l1_loss: false 
     feature_extract_layers: ['3', '8', '15', '22']  # 定义提取特征的层编号
