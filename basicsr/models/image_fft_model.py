@@ -12,15 +12,20 @@ from basicsr.utils import get_root_logger, imwrite, tensor2img
 from basicsr.utils.dist_util import get_dist_info
 from basicsr.models.losses.losses import SSIMLoss
 
+from basicsr.models.archs.v51_fft_arch import DenoisingModule #去噪模块
+
+
 loss_module = importlib.import_module('basicsr.models.losses')
 metric_module = importlib.import_module('basicsr.metrics')
-
 
 class ImageFftModel(BaseModel):
     """Base Deblur model for single image deblur."""
 
     def __init__(self, opt):
         super(ImageFftModel, self).__init__(opt)
+        
+        # 初始化去噪模块
+        self.denoising_module = DenoisingModule().to(self.device)
 
         # define network
         self.net_g = define_network(deepcopy(opt['network_g']))
@@ -41,14 +46,6 @@ class ImageFftModel(BaseModel):
     def init_training_settings(self):
         self.net_g.train()
         train_opt = self.opt['train']
-        
-        # if train_opt.get('ssim_loss_opt'):
-        #     ssim_type = train_opt['ssim_loss_opt'].pop('type')
-        #     cri_ssim_cls = getattr(loss_module, ssim_type)  # 动态获取类
-        #     self.cri_ssim = cri_ssim_cls(**train_opt['ssim_loss_opt']).to(self.device)
-        #     self.ssim_weight = train_opt['ssim_loss_opt'].get('weight', 1.0)  # 获取权重，默认为1
-        # else:
-        #     self.cri_ssim = None
             
         if train_opt.get('pixel_opt'):
             pixel_type = train_opt['pixel_opt'].pop('type')
@@ -110,6 +107,10 @@ class ImageFftModel(BaseModel):
 
     def feed_data(self, data, is_val=False):
         self.lq = data['lq'].to(self.device)
+        
+        with torch.no_grad():
+            self.lq = self.denoising_module(self.lq)  # 使用去噪模块进行预处理
+            
         if 'gt' in data:
             self.gt = data['gt'].to(self.device)
 

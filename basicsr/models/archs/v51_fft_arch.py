@@ -48,12 +48,8 @@ class DFFN(nn.Module):
             patch_size,
             patch_size // 2 + 1
         ))
-        #self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, groups=dim, bias=bias)
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, padding=1, groups=dim, bias=bias)
-        #self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)  # 输入→隐藏层通道
         self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)
-        # 关键修正：project_out 的输入通道应为 hidden_features // 2（拆分后通道数）
-        #self.project_out = nn.Conv2d(self.hidden_features // 2, dim, 1, bias=bias)
         self.project_out = nn.Conv2d(self.hidden_features // 2, dim, kernel_size=1, bias=bias)
 
     def forward(self, x):
@@ -70,17 +66,6 @@ class DFFN(nn.Module):
         
         h_blocks = H // self.patch_size
         w_blocks = W // self.patch_size
-
-        # x = self.project_in(x)  # [B, hidden_features=512, H, W]
-        # x_patch = rearrange(x, 'b c (h p1) (w p2) -> b h w c p1 p2',
-        #                     p1=self.patch_size, p2=self.patch_size, h=h_blocks, w=w_blocks)
-        # x_fft_input = rearrange(x_patch, 'b h w c p1 p2 -> (b h w) c p1 p2')
-        # x_fft = torch.fft.rfft2(x_fft_input)
-        # expanded_fft = self.fft.unsqueeze(0)
-        # x_fft = x_fft * expanded_fft
-        # x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
-        # x = rearrange(x, '(b h w) c p1 p2 -> b h w c p1 p2', b=B, h=h_blocks, w=w_blocks)
-        # x = rearrange(x, 'b h w c p1 p2 -> b c (h p1) (w p2)', p1=self.patch_size, p2=self.patch_size)
         x_fft_input = rearrange(x_patch, 'b h w c p1 p2 -> (b h w) c p1 p2')
         x_fft = torch.fft.rfft2(x_fft_input)
         expanded_fft = self.fft.unsqueeze(0).expand(x_fft.shape[0], -1, -1, -1)
@@ -188,7 +173,6 @@ class TransformerBlock(nn.Module):
 class FPNBlock(nn.Module): 
     def __init__(self, in_channels, out_channels):
         super(FPNBlock, self).__init__()
-        # Lateral connection: 1×1 Conv to reduce channels
         self.lateral_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         # Smooth layer: 3×3 Conv for refinement
         self.smooth_conv = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
@@ -207,9 +191,6 @@ class FPNBlock(nn.Module):
 
         # Step 2: Upsample top-down feature to match spatial dimensions of lateral
         if top_down is not None:
-            # if top_down.shape != lateral.shape:
-            #     top_down = F.interpolate(top_down, size=lateral.shape[2:], mode='bilinear', align_corners=True)
-            # lateral += top_down  # Element-wise addition
             if top_down.shape[2:] != lateral.shape[2:]:
                 top_down = F.interpolate(top_down, size=lateral.shape[2:], mode='bilinear', align_corners=True)
             lateral += top_down
@@ -366,6 +347,27 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
         return x,h,w
 
+class DenoisingModule(nn.Module):
+    def __init__(self, in_channels=3, out_channels=3, num_features=64, num_blocks=4):
+        super(DenoisingModule, self).__init__()
+        self.conv_first = nn.Conv2d(in_channels, num_features, kernel_size=3, padding=1)
+
+        blocks = []
+        for _ in range(num_blocks):
+            blocks.append(TransformerBlock(dim=num_features))
+        self.transformer_blocks = nn.Sequential(*blocks)
+
+        self.dffn = DFFN(num_features=num_features)
+        self.conv_last = nn.Conv2d(num_features, out_channels, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        res = x
+        x = F.relu(self.conv_first(x))
+        x = self.transformer_blocks(x)
+        x = self.dffn(x)
+        x = self.conv_last(x)
+        x += res  # 残差连接
+        return x
 
 if __name__ == '__main__':
     img_channel = 3

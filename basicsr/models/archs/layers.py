@@ -134,17 +134,6 @@ class MultiSpectralDCTLayer(nn.Module):
         # fixed DCT init
         self.register_buffer('weight', self.get_dct_filter(height, width, mapper_x, mapper_y, channel))
 
-        # fixed random init
-        # self.register_buffer('weight', torch.rand(channel, height, width))
-
-        # learnable DCT init
-        # self.register_parameter('weight', self.get_dct_filter(height, width, mapper_x, mapper_y, channel))
-
-        # learnable random init
-        # self.register_parameter('weight', torch.rand(channel, height, width))
-
-        # num_freq, h, w
-
     def forward(self, x):
         assert len(x.shape) == 4, 'x must been 4 dimensions, but got ' + str(len(x.shape))
         # n, c, h, w = x.shape
