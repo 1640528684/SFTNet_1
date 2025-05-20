@@ -303,6 +303,10 @@ class NAFBlock(nn.Module):
         # 使用middle_proj将中间块输出的通道数调整为width
         x = self.middle_proj(x)
         
+        # 在 NAFBlock 中定义一个通道适配器
+        self.channel_adapter = nn.Conv2d(128, width, kernel_size=1, bias=False)
+        x = self.middle_proj(x)
+        x = self.channel_adapter(x)  # 强制将通道数变为 width=64
         # 去噪模块 添加在中间块之后
         x = self.denoising_module(x)
 
