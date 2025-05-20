@@ -250,10 +250,12 @@ class NAFBlock(nn.Module):
             self.middle_blocks.append(TransformerBlock(in_channels_middle))
         
         # 添加一个通道压缩层，将中间块输出的通道数压缩到width
-        self.middle_proj = nn.Conv2d(enc_channels[-1], width, kernel_size=1, bias=False)
+        self.middle_proj = nn.Conv2d(512, width, kernel_size=1, bias=False)
         
         # 在 NAFBlock 中定义一个通道适配器
         self.channel_adapter = nn.Conv2d(128, self.width, kernel_size=1, bias=False)
+        
+        self.enc_channels = []  # 先定义为实例属性
 
         # 定义解码器
         #decoder_in_channels = []
@@ -270,6 +272,7 @@ class NAFBlock(nn.Module):
                 layers.append(nn.ReLU())
             self.decoders.append(nn.Sequential(*layers))
             self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
+            self.enc_channels.append(out_channels)  # 填充它
         
         # 定义channel_adapters，确保输入通道数与编码器的输出通道数一致
         for c in enc_channels:
@@ -307,9 +310,12 @@ class NAFBlock(nn.Module):
             x = blk(x)
         
         # 使用middle_proj将中间块输出的通道数调整为width
+        print(f"Middle block output shape before middle_proj: {x.shape}")  # 打印进入middle_proj之前的形状
+        print(f"Middle proj expected input channels: {self.enc_channels[-1]}, actual input channels: {x.shape[1]}")  # 确认输入通道数
+        
+        # 使用middle_proj将中间块输出的通道数调整为width
         x = self.middle_proj(x)
         
-        x = self.middle_proj(x)
         x = self.channel_adapter(x)  # 强制将通道数变为 width=64
         # 去噪模块 添加在中间块之后
         x = self.denoising_module(x)
