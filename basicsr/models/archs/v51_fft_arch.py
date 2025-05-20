@@ -55,7 +55,8 @@ class DFFN(nn.Module):
         self.before_dwconv = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, padding=1, groups=dim, bias=bias)
         self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)
-        self.project_out = nn.Conv2d(self.hidden_features // 2, dim, kernel_size=1, bias=bias)
+        # 修改 project_out 输入通道数以匹配 half_hidden_features (256)，而非 hidden_features (512)
+        self.project_out = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
 
     def forward(self, x):
         B, C, H, W = x.shape
