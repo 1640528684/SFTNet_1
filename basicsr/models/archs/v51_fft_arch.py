@@ -42,12 +42,16 @@ class DFFN(nn.Module):
     def __init__(self, dim, ffn_expansion_factor=2, bias=False, patch_size=8):
         super(DFFN, self).__init__()
         self.patch_size = patch_size
-        self.hidden_features = int(dim * ffn_expansion_factor)  # 计算隐藏层通道数（如 512）
+        #self.hidden_features = int(dim * ffn_expansion_factor)  # 计算隐藏层通道数
+        self.hidden_features = int(dim * ffn_expansion_factor)
+        self.hidden_features = int(dim * ffn_expansion_factor)
+        
         self.fft = nn.Parameter(torch.randn(
             self.hidden_features,  # 通道数与隐藏层一致
             patch_size,
             patch_size // 2 + 1
         ))
+        
         self.before_dwconv = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, padding=1, groups=dim, bias=bias)
         self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)
