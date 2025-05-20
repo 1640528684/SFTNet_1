@@ -215,6 +215,7 @@ class NAFBlock(nn.Module):
         self.middle_blocks = nn.ModuleList()
         #self.padder_size = 16
         
+        
         # 添加去噪模块：输入/输出通道为 width（默认64）
         self.denoising_module = DenoisingModule(
             in_channels=width,  # 这里会自动适配通道
@@ -248,6 +249,9 @@ class NAFBlock(nn.Module):
         
         # 添加一个通道压缩层，将中间块输出的通道数压缩到width
         self.middle_proj = nn.Conv2d(enc_channels[-1], width, kernel_size=1, bias=False)
+        
+        # 在 NAFBlock 中定义一个通道适配器
+        self.channel_adapter = nn.Conv2d(128, self.width, kernel_size=1, bias=False)
 
         # 定义解码器
         #decoder_in_channels = []
@@ -303,8 +307,6 @@ class NAFBlock(nn.Module):
         # 使用middle_proj将中间块输出的通道数调整为width
         x = self.middle_proj(x)
         
-        # 在 NAFBlock 中定义一个通道适配器
-        self.channel_adapter = nn.Conv2d(128, width, kernel_size=1, bias=False)
         x = self.middle_proj(x)
         x = self.channel_adapter(x)  # 强制将通道数变为 width=64
         # 去噪模块 添加在中间块之后
