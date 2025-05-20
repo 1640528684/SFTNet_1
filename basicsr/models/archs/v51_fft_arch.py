@@ -219,7 +219,7 @@ class NAFBlock(nn.Module):
         self.denoising_module = DenoisingModule(
             in_channels=width,
             out_channels=width,
-            num_features=width,
+            #num_features=width,
             num_blocks=4  # 可调整
         )
 
