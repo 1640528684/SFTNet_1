@@ -241,6 +241,8 @@ class NAFBlock(nn.Module):
                 layers.append(nn.ReLU())
             self.encoders.append(nn.Sequential(*layers))
             enc_channels.append(out_channels)
+        
+        print(f"Last encoder channel count: {enc_channels[-1]}")
 
         # 定义中间的Transformer块
         in_channels_middle = enc_channels[-1]
@@ -329,6 +331,8 @@ class NAFBlock(nn.Module):
 
             x = x + enc_skip
             
+            x = self.middle_proj(x)
+            x = self.channel_adapter(x)  # 强制将通道数变为 width=64
             # 去噪模块 每个解码器块前插入
             x = self.denoising_module(x)
             
