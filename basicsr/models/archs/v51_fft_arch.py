@@ -363,18 +363,26 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
         return x,h,w
 
 class DenoisingModule(nn.Module):
-    def __init__(self, in_channels=3, out_channels=3, num_features=64, num_blocks=4):
+    def __init__(self, in_channels=64, out_channels=64, num_blocks=4):
         super(DenoisingModule, self).__init__()
-        self.conv_first = nn.Conv2d(in_channels, num_features, kernel_size=3, padding=1)
+        
+        # 自动设置中间通道数为输入通道数
+        self.num_features = in_channels
 
+        # 初始卷积
+        self.conv_first = nn.Conv2d(in_channels, self.num_features, kernel_size=3, padding=1)
+
+        # Transformer Blocks
         blocks = []
         for _ in range(num_blocks):
-            blocks.append(TransformerBlock(dim=num_features))
+            blocks.append(TransformerBlock(dim=self.num_features))
         self.transformer_blocks = nn.Sequential(*blocks)
 
-        # 使用 dim 而不是 num_features 来初始化 DFFN
-        self.dffn = DFFN(dim=num_features)  # 修改这里，将 num_features 改为 dim
-        self.conv_last = nn.Conv2d(num_features, out_channels, kernel_size=3, padding=1)
+        # DFFN 模块
+        self.dffn = DFFN(dim=self.num_features)  # 使用实际通道数作为 dim
+
+        # 最终输出卷积
+        self.conv_last = nn.Conv2d(self.num_features, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x):
         res = x
