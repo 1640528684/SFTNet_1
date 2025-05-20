@@ -44,7 +44,7 @@ class DFFN(nn.Module):
         self.patch_size = patch_size
         #self.hidden_features = int(dim * ffn_expansion_factor)  # 计算隐藏层通道数
         self.hidden_features = int(dim * ffn_expansion_factor)
-        self.hidden_features = int(dim * ffn_expansion_factor)
+        self.half_hidden_features = self.hidden_features // 2
         
         self.fft = nn.Parameter(torch.randn(
             self.hidden_features,  # 通道数与隐藏层一致
