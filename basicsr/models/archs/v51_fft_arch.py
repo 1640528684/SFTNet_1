@@ -38,68 +38,133 @@ class SimpleGate2(nn.Module):
         return x1 * x2
 
 
+# class DFFN(nn.Module):
+#     def __init__(self, dim, ffn_expansion_factor=2, bias=False, patch_size=8):
+#         super(DFFN, self).__init__()
+#         self.patch_size = patch_size
+#         self.dim = dim
+#         self.ffn_expansion_factor = ffn_expansion_factor
+#         self.bias = bias
+#         #self.hidden_features = int(dim * ffn_expansion_factor)  # 计算隐藏层通道数
+#         self.hidden_features = int(dim * ffn_expansion_factor)
+#         self.half_hidden_features = self.hidden_features // 2
+        
+#         self.fft = nn.Parameter(torch.randn(
+#             self.hidden_features,  # 通道数与隐藏层一致
+#             patch_size,
+#             patch_size // 2 + 1
+#         ))
+        
+#         self.before_dwconv = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
+#         self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, padding=1, groups=dim, bias=bias)
+#         self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)
+#         # 修改 project_out 输入通道数以匹配 half_hidden_features (256)，而非 hidden_features (512)
+#         self.project_out = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
+
+#     def forward(self, x):
+#         B, C, H, W = x.shape
+#         # === 自动 padding 到 patch_size 的整数倍 ===
+#         pad_h = (self.patch_size - H % self.patch_size) % self.patch_size
+#         pad_w = (self.patch_size - W % self.patch_size) % self.patch_size
+#         if pad_h > 0 or pad_w > 0:
+#             x = F.pad(x, (0, pad_w, 0, pad_h))
+            
+#         Hp, Wp = H + pad_h, W + pad_w
+#         x = self.project_in(x)
+#         print("After project_in:", x.shape)  # 应该是 [B, 512, H, W]
+#         x_patch = rearrange(x, 'b c (h p1) (w p2) -> b h w c p1 p2', p1=self.patch_size, p2=self.patch_size)
+        
+#         h_blocks = H // self.patch_size
+#         w_blocks = W // self.patch_size
+#         x_fft_input = rearrange(x_patch, 'b h w c p1 p2 -> (b h w) c p1 p2')
+#         x_fft = torch.fft.rfft2(x_fft_input)
+#         expanded_fft = self.fft.unsqueeze(0).expand(x_fft.shape[0], -1, -1, -1)
+#         x_fft = x_fft * expanded_fft
+#         x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
+        
+#         # 恢复原始结构
+#         x = rearrange(x, '(b h w) c p1 p2 -> b h w c p1 p2',
+#                       b=B, h=Hp // self.patch_size, w=Wp // self.patch_size)
+#         x = rearrange(x, 'b h w c p1 p2 -> b c (h p1) (w p2)',
+#                       p1=self.patch_size, p2=self.patch_size)
+        
+
+#         #x = self.dwconv(x)  # [B, hidden_features=512, H, W]
+#         print("Before chunk:", x.shape)  # 应该是 [B, 512, H, W]
+#         x1, x2 = x.chunk(2, dim=1)  # 拆分为两个 256 通道
+#         print("After chunk:", x1.shape, x2.shape)  # 都应为 [B, 256, H, W]
+#         x = F.gelu(x1) * x2  # 通道数保持 256
+#         print("After non-linearity:", x.shape)  # 应该是 [B, 256, H, W]
+#         x = self.before_dwconv(x)
+#         print("After before_dwconv:", x.shape)  # 确保通道数仍为 256
+#         x = self.dwconv(x)
+#         print("After dwconv:", x.shape)  # 确保通道数仍为 256 或根据dwconv定义调整
+#         x = self.project_out(x)  # 正确输入通道：256 → 输出通道：dim（如 256）
+#         print("After project_out:", x.shape)  # 确保通道数符合预期
+#         # === 恢复原始图像大小 ===
+#         x = x[:, :, :H, :W]  # 剪裁回原始尺寸
+#         return x
 class DFFN(nn.Module):
     def __init__(self, dim, ffn_expansion_factor=2, bias=False, patch_size=8):
         super(DFFN, self).__init__()
         self.patch_size = patch_size
-        #self.hidden_features = int(dim * ffn_expansion_factor)  # 计算隐藏层通道数
+        self.dim = dim
+        self.ffn_expansion_factor = ffn_expansion_factor
+        self.bias = bias
+
         self.hidden_features = int(dim * ffn_expansion_factor)
         self.half_hidden_features = self.hidden_features // 2
-        
+
+        # FFT 参数
         self.fft = nn.Parameter(torch.randn(
-            self.hidden_features,  # 通道数与隐藏层一致
+            self.hidden_features,
             patch_size,
             patch_size // 2 + 1
         ))
-        
+
+        # 网络结构
+        self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)
         self.before_dwconv = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, padding=1, groups=dim, bias=bias)
-        self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)
-        # 修改 project_out 输入通道数以匹配 half_hidden_features (256)，而非 hidden_features (512)
         self.project_out = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
 
     def forward(self, x):
         B, C, H, W = x.shape
-        # === 自动 padding 到 patch_size 的整数倍 ===
         pad_h = (self.patch_size - H % self.patch_size) % self.patch_size
         pad_w = (self.patch_size - W % self.patch_size) % self.patch_size
         if pad_h > 0 or pad_w > 0:
             x = F.pad(x, (0, pad_w, 0, pad_h))
-            
+
         Hp, Wp = H + pad_h, W + pad_w
         x = self.project_in(x)
-        print("After project_in:", x.shape)  # 应该是 [B, 512, H, W]
+        print("After project_in:", x.shape)
+
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> b h w c p1 p2', p1=self.patch_size, p2=self.patch_size)
-        
-        h_blocks = H // self.patch_size
-        w_blocks = W // self.patch_size
         x_fft_input = rearrange(x_patch, 'b h w c p1 p2 -> (b h w) c p1 p2')
         x_fft = torch.fft.rfft2(x_fft_input)
         expanded_fft = self.fft.unsqueeze(0).expand(x_fft.shape[0], -1, -1, -1)
         x_fft = x_fft * expanded_fft
         x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
-        
-        # 恢复原始结构
-        x = rearrange(x, '(b h w) c p1 p2 -> b h w c p1 p2',
-                      b=B, h=Hp // self.patch_size, w=Wp // self.patch_size)
-        x = rearrange(x, 'b h w c p1 p2 -> b c (h p1) (w p2)',
-                      p1=self.patch_size, p2=self.patch_size)
-        
 
-        #x = self.dwconv(x)  # [B, hidden_features=512, H, W]
-        print("Before chunk:", x.shape)  # 应该是 [B, 512, H, W]
-        x1, x2 = x.chunk(2, dim=1)  # 拆分为两个 256 通道
-        print("After chunk:", x1.shape, x2.shape)  # 都应为 [B, 256, H, W]
-        x = F.gelu(x1) * x2  # 通道数保持 256
-        print("After non-linearity:", x.shape)  # 应该是 [B, 256, H, W]
+        x = rearrange(x, '(b h w) c p1 p2 -> b h w c p1 p2', b=B, h=Hp // self.patch_size, w=Wp // self.patch_size)
+        x = rearrange(x, 'b h w c p1 p2 -> b c (h p1) (w p2)', p1=self.patch_size, p2=self.patch_size)
+
+        x1, x2 = x.chunk(2, dim=1)
+        print("After chunk:", x1.shape, x2.shape)
+
+        x = F.gelu(x1) * x2
+        print("After non-linearity:", x.shape)
+
         x = self.before_dwconv(x)
-        print("After before_dwconv:", x.shape)  # 确保通道数仍为 256
+        print("After before_dwconv:", x.shape)
+
         x = self.dwconv(x)
-        print("After dwconv:", x.shape)  # 确保通道数仍为 256 或根据dwconv定义调整
-        x = self.project_out(x)  # 正确输入通道：256 → 输出通道：dim（如 256）
-        print("After project_out:", x.shape)  # 确保通道数符合预期
-        # === 恢复原始图像大小 ===
-        x = x[:, :, :H, :W]  # 剪裁回原始尺寸
+        print("After dwconv:", x.shape)
+
+        x = self.project_out(x)
+        print("After project_out:", x.shape)
+
+        x = x[:, :, :H, :W]
         return x
 
 
