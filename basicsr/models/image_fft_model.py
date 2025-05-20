@@ -24,8 +24,8 @@ class ImageFftModel(BaseModel):
     def __init__(self, opt):
         super(ImageFftModel, self).__init__(opt)
         
-        # 初始化去噪模块
-        self.denoising_module = DenoisingModule().to(self.device)
+        # # 初始化去噪模块
+        # self.denoising_module = DenoisingModule().to(self.device)
 
         # define network
         self.net_g = define_network(deepcopy(opt['network_g']))
@@ -108,8 +108,8 @@ class ImageFftModel(BaseModel):
     def feed_data(self, data, is_val=False):
         self.lq = data['lq'].to(self.device)
         
-        with torch.no_grad():
-            self.lq = self.denoising_module(self.lq)  # 使用去噪模块进行预处理
+        # with torch.no_grad():
+        #     self.lq = self.denoising_module(self.lq)  # 使用去噪模块进行预处理
             
         if 'gt' in data:
             self.gt = data['gt'].to(self.device)
