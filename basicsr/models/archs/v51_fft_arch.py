@@ -77,10 +77,13 @@ class DFFN(nn.Module):
                       b=B, h=Hp // self.patch_size, w=Wp // self.patch_size)
         x = rearrange(x, 'b h w c p1 p2 -> b c (h p1) (w p2)',
                       p1=self.patch_size, p2=self.patch_size)
+        
 
-        x = self.dwconv(x)  # [B, hidden_features=512, H, W]
+        #x = self.dwconv(x)  # [B, hidden_features=512, H, W]
         x1, x2 = x.chunk(2, dim=1)  # 拆分为两个 256 通道
         x = F.gelu(x1) * x2  # 通道数保持 256
+        x = self.before_dwconv(x)
+        x = self.dwconv(x)
         x = self.project_out(x)  # 正确输入通道：256 → 输出通道：dim（如 256）
         # === 恢复原始图像大小 ===
         x = x[:, :, :H, :W]  # 剪裁回原始尺寸
