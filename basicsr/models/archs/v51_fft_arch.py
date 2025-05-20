@@ -68,6 +68,7 @@ class DFFN(nn.Module):
             
         Hp, Wp = H + pad_h, W + pad_w
         x = self.project_in(x)
+        print("After project_in:", x.shape)  # 应该是 [B, 512, H, W]
         x_patch = rearrange(x, 'b c (h p1) (w p2) -> b h w c p1 p2', p1=self.patch_size, p2=self.patch_size)
         
         h_blocks = H // self.patch_size
@@ -86,11 +87,17 @@ class DFFN(nn.Module):
         
 
         #x = self.dwconv(x)  # [B, hidden_features=512, H, W]
+        print("Before chunk:", x.shape)  # 应该是 [B, 512, H, W]
         x1, x2 = x.chunk(2, dim=1)  # 拆分为两个 256 通道
+        print("After chunk:", x1.shape, x2.shape)  # 都应为 [B, 256, H, W]
         x = F.gelu(x1) * x2  # 通道数保持 256
+        print("After non-linearity:", x.shape)  # 应该是 [B, 256, H, W]
         x = self.before_dwconv(x)
+        print("After before_dwconv:", x.shape)  # 确保通道数仍为 256
         x = self.dwconv(x)
+        print("After dwconv:", x.shape)  # 确保通道数仍为 256 或根据dwconv定义调整
         x = self.project_out(x)  # 正确输入通道：256 → 输出通道：dim（如 256）
+        print("After project_out:", x.shape)  # 确保通道数符合预期
         # === 恢复原始图像大小 ===
         x = x[:, :, :H, :W]  # 剪裁回原始尺寸
         return x
