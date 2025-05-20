@@ -217,10 +217,8 @@ class NAFBlock(nn.Module):
         
         # 添加去噪模块：输入/输出通道为 width（默认64）
         self.denoising_module = DenoisingModule(
-            in_channels=width,
-            out_channels=width,
-            #num_features=width,
-            num_blocks=4  # 可调整
+            in_channels=width,  # 这里会自动适配通道
+            num_blocks=4
         )
 
         enc_channels = []
@@ -366,6 +364,8 @@ class DenoisingModule(nn.Module):
     def __init__(self, in_channels=64, out_channels=64, num_blocks=4):
         super(DenoisingModule, self).__init__()
         
+        if out_channels is None:
+            out_channels = in_channels
         # 自动设置中间通道数为输入通道数
         self.num_features = in_channels
 
