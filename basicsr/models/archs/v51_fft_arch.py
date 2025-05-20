@@ -372,7 +372,8 @@ class DenoisingModule(nn.Module):
             blocks.append(TransformerBlock(dim=num_features))
         self.transformer_blocks = nn.Sequential(*blocks)
 
-        self.dffn = DFFN(num_features=num_features)
+        # 使用 dim 而不是 num_features 来初始化 DFFN
+        self.dffn = DFFN(dim=num_features)  # 修改这里，将 num_features 改为 dim
         self.conv_last = nn.Conv2d(num_features, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x):
