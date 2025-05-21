@@ -124,9 +124,9 @@ class DFFN(nn.Module):
 
         # 网络结构
         self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)
-        self.before_dwconv = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
-        self.dwconv = nn.Conv2d(dim, dim, kernel_size=3, padding=1, groups=dim, bias=bias)
-        self.project_out = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
+        self.before_dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=1, bias=bias)  # 修改为half_hidden_features -> half_hidden_features
+        self.dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=3, padding=1, groups=self.half_hidden_features, bias=bias)  # 修改为half_hidden_features -> half_hidden_features
+        self.project_out = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)  # 将half_hidden_features映射回dim
 
     def forward(self, x):
         B, C, H, W = x.shape
