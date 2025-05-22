@@ -288,10 +288,6 @@ class NAFBlock(nn.Module):
         self.fpn = nn.ModuleList()
         self.channel_adapters = nn.ModuleList()
         self.middle_blocks = nn.ModuleList()
-        #self.padder_size = 16
-        
-        
-        # 添加去噪模块：输入/输出通道为 width（默认64）
         self.denoising_module = DenoisingModule(
             in_channels=width,  # 这里会自动适配通道
             num_blocks=4
@@ -325,16 +321,12 @@ class NAFBlock(nn.Module):
             self.middle_blocks.append(TransformerBlock(in_channels_middle))
         
         # 添加一个通道压缩层，将中间块输出的通道数压缩到width
-        self.middle_proj = nn.Conv2d(512, width, kernel_size=1, bias=False)
+        self.middle_proj = nn.Conv2d(in_channels_middle, width, kernel_size=1, bias=False)  # 修改为使用 enc_channels[-1]
         
         # 在 NAFBlock 中定义一个通道适配器
         self.channel_adapter = nn.Conv2d(width, width, kernel_size=1, bias=False)
         
-        self.enc_channels = []  # 先定义为实例属性
-
         # 定义解码器
-        #decoder_in_channels = []
-        
         for i in range(len(dec_blk_nums)):
             in_channels = width
             out_channels = width
@@ -347,7 +339,6 @@ class NAFBlock(nn.Module):
                 layers.append(nn.ReLU())
             self.decoders.append(nn.Sequential(*layers))
             self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
-            self.enc_channels.append(out_channels)  # 填充它
         
         # 定义channel_adapters，确保输入通道数与编码器的输出通道数一致
         for c in enc_channels:
@@ -362,15 +353,6 @@ class NAFBlock(nn.Module):
 
         self.final_conv = nn.Conv2d(width, img_channel, kernel_size=1)
     
-    def _check_image_size(self, x):
-        _, _, h, w = x.size()
-        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
-        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
-        if mod_pad_h > 0 or mod_pad_w > 0:
-            x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        #x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        return x, h, w
-
     def forward(self, x):
         x, original_h, original_w = self._check_image_size(x)
         # 编码器部分
@@ -384,15 +366,10 @@ class NAFBlock(nn.Module):
         for blk in self.middle_blocks:
             x = blk(x)
         
-        # # 使用middle_proj将中间块输出的通道数调整为width
-        # print(f"Middle block output shape before middle_proj: {x.shape}")  # 打印进入middle_proj之前的形状
-        # print(f"Middle proj expected input channels: {self.enc_channels[-1]}, actual input channels: {x.shape[1]}")  # 确认输入通道数
-        print(f"Middle block output shape before middle_proj: {x.shape}")
         # 使用middle_proj将中间块输出的通道数调整为width
         x = self.middle_proj(x)
-        print(f"Middle block output shape before middle_proj: {x.shape}")
-        x = self.channel_adapter(x)  # 强制将通道数变为 width=64
-        # 去噪模块 添加在中间块之后
+        
+        # 添加去噪模块
         x = self.denoising_module(x)
 
         # 解码器和FPN部分
@@ -412,8 +389,6 @@ class NAFBlock(nn.Module):
 
             x = x + enc_skip
             
-            x = self.middle_proj(x)
-            x = self.channel_adapter(x)  # 强制将通道数变为 width=64
             # 去噪模块 每个解码器块前插入
             x = self.denoising_module(x)
             
@@ -430,7 +405,6 @@ class NAFBlock(nn.Module):
         # 恢复到原始大小
         x = x[:, :, :original_h, :original_w]
         return x
-
     
 
 
