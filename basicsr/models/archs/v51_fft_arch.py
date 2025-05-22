@@ -124,9 +124,26 @@ class DFFN(nn.Module):
 
         # 网络结构
         self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)
-        self.before_dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=1, bias=bias)  # 修改为half_hidden_features -> half_hidden_features
-        self.dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=3, padding=1, groups=self.half_hidden_features, bias=bias)  # 修改为half_hidden_features -> half_hidden_features
-        self.project_out = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)  # 将half_hidden_features映射回dim
+        self.before_dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=1, bias=bias)
+        self.dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=3, padding=1, groups=self.half_hidden_features, bias=bias)
+        self.project_out = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
+
+        # 动态适配器层
+        self.channel_adaptor = None
+        
+        # middle_proj 层
+        self.middle_proj = nn.Conv2d(512, 64, kernel_size=1)
+
+    def adapt_channels(self, x):
+        """ 动态创建适配器层以匹配输入张量的通道数 """
+        if self.channel_adaptor is None or self.channel_adaptor.in_channels != x.shape[1]:
+            self.channel_adaptor = nn.Conv2d(
+                in_channels=x.shape[1],
+                out_channels=512,
+                kernel_size=1,
+                bias=False
+            ).to(x.device)
+        return self.channel_adaptor(x)
 
     def forward(self, x):
         B, C, H, W = x.shape
@@ -163,6 +180,13 @@ class DFFN(nn.Module):
 
         x = self.project_out(x)
         print("After project_out:", x.shape)
+
+        # 在调用middle_proj前先适配通道
+        if x.shape[1] != self.middle_proj.in_channels:
+            x = self.adapt_channels(x)
+
+        x = self.middle_proj(x)
+        print("After middle_proj:", x.shape)
 
         x = x[:, :, :H, :W]
         return x
@@ -503,4 +527,6 @@ if __name__ == '__main__':
     from ptflops import get_model_complexity_info
     macs, params = get_model_complexity_info(net, inp_shape, verbose=False, print_per_layer_stat=False)
     print(f"MACs: {macs:.2f} G, Params: {params:.2f} M")
+
+
 
