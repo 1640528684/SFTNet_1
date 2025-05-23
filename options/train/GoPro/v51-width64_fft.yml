@@ -45,8 +45,8 @@ datasets:
 
 network_g:
   type: v51fftLocal
-  width: 64
-  enc_blk_nums: [1, 1, 1, 14]  #[1, 1, 1, 28]
+  width: 64  #64
+  enc_blk_nums: [1, 1, 1, 28]  #[1, 1, 1, 28]
   middle_blk_num: 1
   dec_blk_nums: [1, 1, 1, 1]
   patch_size: 8 # 新增 patch_size 参数
