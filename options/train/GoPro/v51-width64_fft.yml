@@ -22,14 +22,14 @@ datasets:
     io_backend:
       type: disk #lmdb
 
-    gt_size: 128  #256
+    gt_size: 256  #256
     use_flip: true
     use_rot: true
 
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 4
-    batch_size_per_gpu: 8
+    batch_size_per_gpu: 4
     dataset_enlarge_ratio: 1
     prefetch_mode: ~
 
