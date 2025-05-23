@@ -22,7 +22,7 @@ datasets:
     io_backend:
       type: disk #lmdb
 
-    gt_size: 256  #256
+    gt_size: 128  #256
     use_flip: true
     use_rot: true
 
