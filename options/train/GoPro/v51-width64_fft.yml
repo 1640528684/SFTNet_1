@@ -22,7 +22,7 @@ datasets:
     io_backend:
       type: disk #lmdb
 
-    gt_size: 256
+    gt_size: 128  #256
     use_flip: true
     use_rot: true
 
@@ -46,7 +46,7 @@ datasets:
 network_g:
   type: v51fftLocal
   width: 64
-  enc_blk_nums: [1, 1, 1, 28]
+  enc_blk_nums: [1, 1, 1, 14]  #[1, 1, 1, 28]
   middle_blk_num: 1
   dec_blk_nums: [1, 1, 1, 1]
   patch_size: 8 # 新增 patch_size 参数
