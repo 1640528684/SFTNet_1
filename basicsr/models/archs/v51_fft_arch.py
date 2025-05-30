@@ -21,6 +21,7 @@ from basicsr.models.archs.local_arch import Local_Base
 from einops import rearrange
 from .layers import *
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 class SimpleGate(nn.Module):
     def __init__(self, dim):
@@ -239,9 +240,13 @@ class TransformerBlock(nn.Module):
         self.norm2 = LayerNorm(dim, LayerNorm_type)
         self.ffn = DFFN(dim, ffn_expansion_factor, bias)
 
+    # def forward(self, x):
+    #     x = x + self.attention(self.norm1(x))
+    #     x = x + self.ffn(self.norm2(x))
+    #     return x
     def forward(self, x):
-        x = x + self.attention(self.norm1(x))
-        x = x + self.ffn(self.norm2(x))
+        x = x + checkpoint(self.attention, self.norm1(x))  # 启用梯度检查点
+        x = x + checkpoint(self.ffn, self.norm2(x))        # 启用梯度检查点
         return x
 
 
@@ -425,8 +430,9 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
         return x,h,w
 
+# 在 v51_fft_arch.py 中
 class DenoisingModule(nn.Module):
-    def __init__(self, in_channels=64, out_channels=64, num_blocks=4):
+    def __init__(self, in_channels=64, out_channels=64, num_blocks=2):  # 减少Transformer块数
         super(DenoisingModule, self).__init__()
         
         if out_channels is None:
@@ -444,7 +450,7 @@ class DenoisingModule(nn.Module):
         self.transformer_blocks = nn.Sequential(*blocks)
 
         # DFFN 模块
-        self.dffn = DFFN(dim=self.num_features)  # 使用实际通道数作为 dim
+        self.dffn = DFFN(dim=self.num_features, ffn_expansion_factor=1.5)  # 减少DFFN中的隐藏特征数
 
         # 最终输出卷积
         self.conv_last = nn.Conv2d(self.num_features, out_channels, kernel_size=3, padding=1)
