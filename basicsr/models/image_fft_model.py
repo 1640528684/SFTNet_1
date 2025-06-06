@@ -192,7 +192,7 @@ class ImageFftModel(BaseModel):
 
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
-        self.accumulation_steps = 8  # 梯度累积步数
+        self.accumulation_steps = 16  # 梯度累积步数
         scaler = GradScaler()
 
         if self.opt['train'].get('mixup', False):

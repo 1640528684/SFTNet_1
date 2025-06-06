@@ -410,6 +410,11 @@ class NAFBlock(nn.Module):
         x = self.final_conv(x)
         # 恢复到原始大小
         x = x[:, :, :original_h, :original_w]
+        
+        # 释放不必要的中间变量
+        del encs, fpn_features, fused
+        torch.cuda.empty_cache()
+        
         return x
     
 
