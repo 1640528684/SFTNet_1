@@ -13,6 +13,7 @@ from basicsr.utils.dist_util import get_dist_info
 from basicsr.models.losses.losses import SSIMLoss
 
 from basicsr.models.archs.v51_fft_arch import DenoisingModule #去噪模块
+from torch.cuda.amp import GradScaler, autocast
 
 
 loss_module = importlib.import_module('basicsr.models.losses')
@@ -192,6 +193,7 @@ class ImageFftModel(BaseModel):
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
         self.accumulation_steps = 8  # 梯度累积步数
+        scaler = GradScaler()
 
         if self.opt['train'].get('mixup', False):
             self.mixup_aug()
@@ -213,20 +215,30 @@ class ImageFftModel(BaseModel):
                 loss_dict['l_consistency'] = l_consistency
             
             l_total = l_total / self.accumulation_steps  # 平均损失
-            l_total.backward()
+            scaler.scale(l_total).backward()
+            #l_total.backward()
             # 释放不必要的张量
-            del preds
-            torch.cuda.empty_cache()
+            #del preds
+            #torch.cuda.empty_cache()
 
         else:
-            preds = self.net_g(self.lq)
-            if not isinstance(preds, list):
-                preds = [preds]
+            # preds = self.net_g(self.lq)
+            # if not isinstance(preds, list):
+            #     preds = [preds]
 
-            self.output = preds[-1]
+            # self.output = preds[-1]
 
-            l_total = 0
-            loss_dict = OrderedDict()
+            # l_total = 0
+            # loss_dict = OrderedDict()
+            with autocast():
+                preds = self.net_g(self.lq)
+                if not isinstance(preds, list):
+                    preds = [preds]
+
+                self.output = preds[-1]
+
+                l_total = 0
+                loss_dict = OrderedDict()
         
             # 如果有定义 cri_ssim 并且不为空，则计算 SSIM 损失
             # if self.cri_ssim is not None:
@@ -253,14 +265,21 @@ class ImageFftModel(BaseModel):
                 l_perceptual = self.cri_perceptual(preds[-1], self.gt)
                 l_total += l_perceptual
                 loss_dict['l_perceptual'] = l_perceptual
+                
             l_total = l_total / self.accumulation_steps  # 平均损失
             l_total.backward()
+            
+            # 释放不必要的张量
+            del preds
+            torch.cuda.empty_cache()
             
         if (current_iter + 1) % self.accumulation_steps == 0:
             use_grad_clip = self.opt['train'].get('use_grad_clip', True)
             if use_grad_clip:
+                scaler.unscale_(self.optimizer_g)
                 torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), 0.01)
             self.optimizer_g.step()
+            scaler.update()
             self.optimizer_g.zero_grad()
 
         self.log_dict = self.reduce_loss_dict(loss_dict)
