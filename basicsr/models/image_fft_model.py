@@ -191,6 +191,7 @@ class ImageFftModel(BaseModel):
 
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
+        self.accumulation_steps = 4  # 梯度累积步数
 
         if self.opt['train'].get('mixup', False):
             self.mixup_aug()
@@ -210,7 +211,8 @@ class ImageFftModel(BaseModel):
                 l_consistency = self.cri_consistency(preds[-1], self.lq)
                 l_total += l_consistency
                 loss_dict['l_consistency'] = l_consistency
-
+            
+            l_total = l_total / self.accumulation_steps  # 平均损失
             l_total.backward()
 
         else:
@@ -248,13 +250,15 @@ class ImageFftModel(BaseModel):
                 l_perceptual = self.cri_perceptual(preds[-1], self.gt)
                 l_total += l_perceptual
                 loss_dict['l_perceptual'] = l_perceptual
-
-        l_total.backward()
-
-        use_grad_clip = self.opt['train'].get('use_grad_clip', True)
-        if use_grad_clip:
-            torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), 0.01)
-        self.optimizer_g.step()
+            l_total = l_total / self.accumulation_steps  # 平均损失
+            l_total.backward()
+            
+        if (current_iter + 1) % self.accumulation_steps == 0:
+            use_grad_clip = self.opt['train'].get('use_grad_clip', True)
+            if use_grad_clip:
+                torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), 0.01)
+            self.optimizer_g.step()
+            self.optimizer_g.zero_grad()
 
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
@@ -281,6 +285,11 @@ class ImageFftModel(BaseModel):
                 i = j
 
             self.output = torch.cat(outs, dim=0)
+        
+        # 释放不必要的张量
+        del outs
+        torch.cuda.empty_cache()
+        
         self.net_g.train()
 
     def dist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):

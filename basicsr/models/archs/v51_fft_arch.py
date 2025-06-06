@@ -282,8 +282,9 @@ class FPNBlock(nn.Module):
 
 
 class NAFBlock(nn.Module):
-    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1, 1, 1, 28],
-                 middle_blk_num=1, dec_blk_nums=[1, 1, 1, 1], patch_size=8):
+    #enc_blk_nums=[1, 1, 1, 28]
+    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1, 1, 1, 14],    
+                 middle_blk_num=1, dec_blk_nums=[1, 1, 1, 1], patch_size=8):    
         super().__init__()
         self.patch_size = patch_size
         self.width = width
@@ -432,7 +433,7 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
 
 # 在 v51_fft_arch.py 中
 class DenoisingModule(nn.Module):
-    def __init__(self, in_channels=64, out_channels=64, num_blocks=2):  # 减少Transformer块数
+    def __init__(self, in_channels=64, out_channels=64, num_blocks=1):  # 减少Transformer块数
         super(DenoisingModule, self).__init__()
         
         if out_channels is None:
