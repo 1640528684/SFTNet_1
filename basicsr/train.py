@@ -23,6 +23,10 @@ from basicsr.utils.options import dict2str, parse
 import math
 from torchvision import transforms  # 引入transforms模块
 
+# #重新初始化 cuDNN
+# torch.backends.cudnn.enabled = True
+# torch.backends.cudnn.benchmark = True
+# torch.backends.cudnn.deterministic = False
 
 def parse_options(is_train=True):
     parser = argparse.ArgumentParser()
