@@ -87,6 +87,10 @@ def adjust_image_size(img, patch_size=16):
 def create_train_val_dataloader(opt, logger):
     train_loader, val_loader = None, None
     for phase, dataset_opt in opt['datasets'].items():
+        # # 创建transform列表
+        # transform_list = [
+        #     transforms.Lambda(lambda img: adjust_image_size(img, dataset_opt.get('patch_size', 16)))
+        # ]
         # 创建transform列表
         transform_list = [
             transforms.Lambda(lambda img: adjust_image_size(img, dataset_opt.get('patch_size', 16)))
