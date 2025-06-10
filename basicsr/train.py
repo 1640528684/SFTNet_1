@@ -9,6 +9,7 @@ import time
 from os import path as osp
 root_dir = os.path.dirname(os.path.abspath(__file__))  # 获取当前脚本所在目录（basicsr）
 sys.path.append(os.path.dirname(root_dir))  # 将根目录（NAFNet）加入路径
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
 import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader
