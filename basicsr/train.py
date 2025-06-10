@@ -95,19 +95,19 @@ def adjust_image_size(img, patch_size=16):
 def create_train_val_dataloader(opt, logger):
     train_loader, val_loader = None, None
     for phase, dataset_opt in opt['datasets'].items():
+        # 创建transform列表
+        transform_list = [
+            transforms.Lambda(lambda img: adjust_image_size(img, dataset_opt.get('patch_size', 16)))
+        ]
+        # 如果配置中有其他transforms，则合并它们
+        if 'transforms' in dataset_opt:
+            for trans in dataset_opt['transforms']:
+                transform_list.append(getattr(transforms, trans[0])(**trans[1]))
+        # 设置dataset的transform
+        dataset_opt['transform'] = transforms.Compose(transform_list)
         
         if phase == 'train':
-            # 创建transform列表
-            transform_list = [
-                transforms.Lambda(lambda img: adjust_image_size(img, dataset_opt.get('patch_size', 16)))
-            ]
-            # 如果配置中有其他transforms，则合并它们
-            if 'transforms' in dataset_opt:
-                for trans in dataset_opt['transforms']:
-                    transform_list.append(getattr(transforms, trans[0])(**trans[1]))
-            # 设置dataset的transform
-            dataset_opt['transform'] = transforms.Compose(transform_list)
-            dataset_opt['batch_size_per_gpu'] = 8  # 进一步减小批量大小
+            #dataset_opt['batch_size_per_gpu'] = 8  # 进一步减小批量大小
             dataset_enlarge_ratio = dataset_opt.get('dataset_enlarge_ratio', 1)
             train_set = create_dataset(dataset_opt)
             train_sampler = EnlargedSampler(train_set, opt['world_size'], opt['rank'], dataset_enlarge_ratio)
