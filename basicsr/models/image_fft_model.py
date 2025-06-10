@@ -192,7 +192,7 @@ class ImageFftModel(BaseModel):
 
     def optimize_parameters(self, current_iter, tb_logger):
         self.optimizer_g.zero_grad()
-        self.accumulation_steps = 8  # 梯度累积步数
+        self.accumulation_steps = 32  # 梯度累积步数
         scaler = GradScaler()
 
         if self.opt['train'].get('mixup', False):
@@ -216,21 +216,9 @@ class ImageFftModel(BaseModel):
             
             l_total = l_total / self.accumulation_steps  # 平均损失
             scaler.scale(l_total).backward()
-            #l_total.backward()
-            # 释放不必要的张量
-            #del preds
-            #torch.cuda.empty_cache()
 
         else:
-            # preds = self.net_g(self.lq)
-            # if not isinstance(preds, list):
-            #     preds = [preds]
-
-            # self.output = preds[-1]
-
-            # l_total = 0
-            # loss_dict = OrderedDict()
-            with autocast():
+            with autocast():   
                 preds = self.net_g(self.lq)
                 if not isinstance(preds, list):
                     preds = [preds]

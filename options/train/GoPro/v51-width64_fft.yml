@@ -29,8 +29,16 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 4
-    batch_size_per_gpu: 4
+    batch_size_per_gpu: 8
     dataset_enlarge_ratio: 1
+    transforms:
+      - [Resize, {'size': [128, 128]}]
+      - [RandomCrop, {'size': 128}]
+      - [RandomHorizontalFlip, {'p': 0.5}]
+      - [RandomVerticalFlip, {'p': 0.5}]
+      - [RandomRotation, {'degrees': 90}]
+    phase: train
+    scale: 1
     prefetch_mode: ~
 
 
@@ -41,6 +49,10 @@ datasets:
     dataroot_lq: /home/user/NAFNet/datasets/GoPro/test/input.lmdb
     io_backend:
       type: lmdb
+    transforms:
+      - [Resize, {'size': [128, 128]}]
+    phase: val
+    scale: 1
 
 
 network_g:
@@ -63,7 +75,7 @@ train:
     type: AdamW
     lr: !!float 1e-3
     weight_decay: !!float 1e-3
-    betas: [0.9, 0.9]
+    betas: [0.9,0.999] #[0.9, 0.9]
 
   scheduler:
     type: TrueCosineAnnealingLR
