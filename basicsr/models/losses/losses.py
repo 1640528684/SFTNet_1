@@ -29,7 +29,9 @@ def mse_loss(pred, target):
 # @weighted_loss
 # def charbonnier_loss(pred, target, eps=1e-12):
 #     return torch.sqrt((pred - target)**2 + eps)
-
+@weighted_loss
+def perceptual_weighted_loss(pred, target):
+    return F.mse_loss(pred, target, reduction='none')
 
 class L1Loss(nn.Module):
     """L1 (mean absolute error, MAE) loss.
@@ -148,37 +150,114 @@ class FFTLoss(nn.Module):
         target_fft = torch.stack([target_fft.real, target_fft.imag], dim=-1)
         return self.loss_weight * l1_loss(pred_fft, target_fft, weight, reduction=self.reduction)
 
-class PerceptualLoss(nn.Module):
-    def __init__(self, feature_extract_layers=None, use_l1_loss=False):
-        super(PerceptualLoss, self).__init__()
-        if feature_extract_layers is None:
-            # 默认提取第3、8、15、22层的特征
-            feature_extract_layers = ['3', '8', '15', '22']
-        self.feature_extract_layers = feature_extract_layers
-        self.use_l1_loss = use_l1_loss
+# class PerceptualLoss(nn.Module):
+#     def __init__(self, feature_extract_layers=None, use_l1_loss=False):
+#         super(PerceptualLoss, self).__init__()
+#         if feature_extract_layers is None:
+#             # 默认提取第3、8、15、22层的特征
+#             feature_extract_layers = ['3', '8', '15', '22']
+#         self.feature_extract_layers = feature_extract_layers
+#         self.use_l1_loss = use_l1_loss
 
-        vgg = vgg19(pretrained=True).features
-        self.model = nn.Sequential()
-        for layer in range(max(map(int, feature_extract_layers))+1):
-            self.model.add_module(str(layer), vgg[layer])
+#         vgg = vgg19(pretrained=True).features
+#         self.model = nn.Sequential()
+#         for layer in range(max(map(int, feature_extract_layers))+1):
+#             self.model.add_module(str(layer), vgg[layer])
         
+#         # 冻结参数
+#         for param in self.model.parameters():
+#             param.requires_grad = False
+        
+#         if self.use_l1_loss:
+#             self.loss = nn.L1Loss()
+#         else:
+#             self.loss = nn.MSELoss()
+
+#     def forward(self, pred, target):
+#         loss = 0.0
+#         for name, module in self.model._modules.items():
+#             pred = module(pred)
+#             target = module(target)
+#             if name in self.feature_extract_layers:
+#                 loss += self.loss(pred, target)
+#         return loss
+class PerceptualLoss(nn.Module):
+    def __init__(self, feature_extract_layers=None, loss_weight=1.0, reduction='mean', start_iter=1000, use_vgg='vgg11'):
+        """
+        优化版感知损失：
+            - 可选择使用轻量VGG（如 vgg11）
+            - 只在指定迭代之后才启用感知损失
+            - 每次 forward 后清除中间特征以节省显存
+        :param feature_extract_layers: 提取特征的层索引列表，例如 ['3', '8']
+        :param loss_weight: 损失权重
+        :param reduction: 损失归约方式
+        :param start_iter: 开始应用感知损失的迭代数
+        :param use_vgg: 使用的VGG类型 ('vgg11' 或 'vgg19')
+        """
+        super(PerceptualLoss, self).__init__()
+
+        if reduction not in ['none', 'mean', 'sum']:
+            raise ValueError(f'Unsupported reduction mode: {reduction}')
+
+        self.loss_weight = loss_weight
+        self.reduction = reduction
+        self.start_iter = start_iter
+
+        # 选择模型
+        if use_vgg == 'vgg11':
+            vgg_model = vgg11(pretrained=True).features
+        elif use_vgg == 'vgg19':
+            from torchvision.models import vgg19
+            vgg_model = vgg19(pretrained=True).features
+        else:
+            raise ValueError(f"Unsupported VGG model: {use_vgg}")
+
+        # 设置要提取的层
+        if feature_extract_layers is None:
+            feature_extract_layers = ['3', '8']  # vgg11 默认较浅层
+        self.feature_extract_layers = feature_extract_layers
+
+        # 构建子模型
+        max_layer_idx = max(map(int, feature_extract_layers))
+        self.model = nn.Sequential()
+        for idx in range(max_layer_idx + 1):
+            self.model.add_module(str(idx), vgg_model[idx])
+
         # 冻结参数
         for param in self.model.parameters():
             param.requires_grad = False
-        
-        if self.use_l1_loss:
-            self.loss = nn.L1Loss()
-        else:
-            self.loss = nn.MSELoss()
 
-    def forward(self, pred, target):
+        # 损失函数
+        self.loss_func = perceptual_weighted_loss
+
+    def forward(self, pred, target, current_iter, weight=None, **kwargs):
+        """
+        :param pred: 模型输出图像 (B, C, H, W)
+        :param target: 真实图像 (B, C, H, W)
+        :param current_iter: 当前训练迭代次数
+        :param weight: 可选权重图
+        """
+        # 如果当前迭代未到指定次数，返回0
+        if current_iter < self.start_iter:
+            return torch.tensor(0.0, device=pred.device)
+
         loss = 0.0
-        for name, module in self.model._modules.items():
-            pred = module(pred)
-            target = module(target)
-            if name in self.feature_extract_layers:
-                loss += self.loss(pred, target)
-        return loss
+        pred_features = []
+        target_features = []
+
+        with torch.no_grad():  # 不需要梯度，节省显存
+            for name, module in self.model._modules.items():
+                pred = module(pred)
+                target = module(target)
+                if name in self.feature_extract_layers:
+                    pred_features.append(pred.clone())
+                    target_features.append(target.clone())
+
+        # 计算各层损失
+        for p_feat, t_feat in zip(pred_features, target_features):
+            loss += self.loss_func(p_feat, t_feat, weight, reduction=self.reduction)
+
+        return self.loss_weight * loss
 
 #新增SSIM损失
 def _fspecial_gauss_1d(size, sigma):
