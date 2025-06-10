@@ -54,6 +54,14 @@ def parse_options(is_train=True):
     # 设备设置
     opt['num_gpu'] = torch.cuda.device_count() if torch.cuda.is_available() else 0
     opt['device'] = 'cuda' if opt['num_gpu'] > 0 else 'cpu'
+    
+    # 调整优化器设置
+    if is_train:
+        if opt['train'].get('optim_g', {}).get('type') == 'AdamW':
+            # 减小正则化强度
+            opt['train']['optim_g']['weight_decay'] = 0.0001
+            # 调整动量参数
+            opt['train']['optim_g']['betas'] = (0.9, 0.999)
 
     return opt
 
@@ -87,22 +95,19 @@ def adjust_image_size(img, patch_size=16):
 def create_train_val_dataloader(opt, logger):
     train_loader, val_loader = None, None
     for phase, dataset_opt in opt['datasets'].items():
-        # # 创建transform列表
-        # transform_list = [
-        #     transforms.Lambda(lambda img: adjust_image_size(img, dataset_opt.get('patch_size', 16)))
-        # ]
-        # 创建transform列表
-        transform_list = [
-            transforms.Lambda(lambda img: adjust_image_size(img, dataset_opt.get('patch_size', 16)))
-        ]
-        # 如果配置中有其他transforms，则合并它们
-        if 'transforms' in dataset_opt:
-            for trans in dataset_opt['transforms']:
-                transform_list.append(getattr(transforms, trans[0])(**trans[1]))
-        # 设置dataset的transform
-        dataset_opt['transform'] = transforms.Compose(transform_list)
         
         if phase == 'train':
+            # 创建transform列表
+            transform_list = [
+                transforms.Lambda(lambda img: adjust_image_size(img, dataset_opt.get('patch_size', 16)))
+            ]
+            # 如果配置中有其他transforms，则合并它们
+            if 'transforms' in dataset_opt:
+                for trans in dataset_opt['transforms']:
+                    transform_list.append(getattr(transforms, trans[0])(**trans[1]))
+            # 设置dataset的transform
+            dataset_opt['transform'] = transforms.Compose(transform_list)
+            dataset_opt['batch_size_per_gpu'] = 8  # 进一步减小批量大小
             dataset_enlarge_ratio = dataset_opt.get('dataset_enlarge_ratio', 1)
             train_set = create_dataset(dataset_opt)
             train_sampler = EnlargedSampler(train_set, opt['world_size'], opt['rank'], dataset_enlarge_ratio)

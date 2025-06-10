@@ -283,7 +283,7 @@ class FPNBlock(nn.Module):
 
 class NAFBlock(nn.Module):
     #enc_blk_nums=[1, 1, 1, 28]
-    def __init__(self, img_channel=3, width=32, enc_blk_nums=[1, 1, 1, 14],    
+    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1, 1, 1, 14],    
                  middle_blk_num=1, dec_blk_nums=[1, 1, 1, 1], patch_size=8):    
         super().__init__()
         self.patch_size = patch_size
