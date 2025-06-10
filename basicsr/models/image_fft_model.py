@@ -107,13 +107,13 @@ class ImageFftModel(BaseModel):
         self.optimizers.append(self.optimizer_g)
 
     def feed_data(self, data, is_val=False):
-        self.lq = data['lq'].to(self.device)
+        self.lq = data['lq'].to(self.device, non_blocking=True)  # 使用 non_blocking=True 提高效率
         
         # with torch.no_grad():
         #     self.lq = self.denoising_module(self.lq)  # 使用去噪模块进行预处理
             
         if 'gt' in data:
-            self.gt = data['gt'].to(self.device)
+            self.gt = data['gt'].to(self.device,non_blocking=True)
 
     def grids(self):
         b, c, h, w = self.gt.size()
