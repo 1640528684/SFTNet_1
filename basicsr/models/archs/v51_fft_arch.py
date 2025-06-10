@@ -283,7 +283,7 @@ class FPNBlock(nn.Module):
 
 class NAFBlock(nn.Module):
     #enc_blk_nums=[1, 1, 1, 28]
-    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1, 1, 1, 14],    
+    def __init__(self, img_channel=3, width=32, enc_blk_nums=[1, 1, 1, 14],    
                  middle_blk_num=1, dec_blk_nums=[1, 1, 1, 1], patch_size=8):    
         super().__init__()
         self.patch_size = patch_size
@@ -296,7 +296,7 @@ class NAFBlock(nn.Module):
         self.middle_blocks = nn.ModuleList()
         self.denoising_module = DenoisingModule(
             in_channels=width,  # 这里会自动适配通道
-            num_blocks=4
+            num_blocks=1
         )
 
         enc_channels = []
@@ -436,29 +436,23 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
         return x,h,w
 
-# 在 v51_fft_arch.py 中
 class DenoisingModule(nn.Module):
     def __init__(self, in_channels=64, out_channels=64, num_blocks=1):  # 减少Transformer块数
         super(DenoisingModule, self).__init__()
         
         if out_channels is None:
             out_channels = in_channels
-        # 自动设置中间通道数为输入通道数
         self.num_features = in_channels
 
-        # 初始卷积
         self.conv_first = nn.Conv2d(in_channels, self.num_features, kernel_size=3, padding=1)
 
-        # Transformer Blocks
         blocks = []
-        for _ in range(num_blocks):
+        for _ in range(num_blocks):  # 减少Transformer块的数量
             blocks.append(TransformerBlock(dim=self.num_features))
         self.transformer_blocks = nn.Sequential(*blocks)
 
-        # DFFN 模块
-        self.dffn = DFFN(dim=self.num_features, ffn_expansion_factor=1.5)  # 减少DFFN中的隐藏特征数
+        self.dffn = DFFN(dim=self.num_features, ffn_expansion_factor=1.5)  # 保持DFFN模块不变
 
-        # 最终输出卷积
         self.conv_last = nn.Conv2d(self.num_features, out_channels, kernel_size=3, padding=1)
 
     def forward(self, x):
