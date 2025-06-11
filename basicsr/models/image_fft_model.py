@@ -64,16 +64,16 @@ class ImageFftModel(BaseModel):
         else:
             self.cri_fft = None
 
-        if train_opt.get('perceptual_loss_opt'):
-            from basicsr.models.losses import PerceptualLoss
-            self.cri_perceptual = PerceptualLoss(
-                layer_weights=train_opt['perceptual_loss_opt'].get('layer_weights', {'3': 1.0, '8': 1.0, '15': 1.0, '22': 1.0}),
-                use_l1_loss=train_opt['perceptual_loss_opt'].get('use_l1_loss', False)
-            ).to(self.device)
-        else:
-            self.cri_perceptual = None
+        # if train_opt.get('perceptual_loss_opt'):
+        #     from basicsr.models.losses import PerceptualLoss
+        #     self.cri_perceptual = PerceptualLoss(
+        #         layer_weights=train_opt['perceptual_loss_opt'].get('layer_weights', {'3': 1.0, '8': 1.0, '15': 1.0, '22': 1.0}),
+        #         use_l1_loss=train_opt['perceptual_loss_opt'].get('use_l1_loss', False)
+        #     ).to(self.device)
+        # else:
+        #     self.cri_perceptual = None
 
-        if self.cri_pix is None and self.cri_perceptual is None and self.cri_fft is None:
+        if self.cri_pix is None and self.cri_fft is None:
             raise ValueError('All losses are None.')
 
         # set up optimizers and schedulers
@@ -249,10 +249,10 @@ class ImageFftModel(BaseModel):
                 loss_dict['l_fft'] = l_fft
 
             # 感知损失
-            if self.cri_perceptual:
-                l_perceptual = self.cri_perceptual(preds[-1], self.gt)
-                l_total += l_perceptual
-                loss_dict['l_perceptual'] = l_perceptual
+            # if self.cri_perceptual:
+            #     l_perceptual = self.cri_perceptual(preds[-1], self.gt)
+            #     l_total += l_perceptual
+            #     loss_dict['l_perceptual'] = l_perceptual
                 
             l_total = l_total / self.accumulation_steps  # 平均损失
             l_total.backward()
