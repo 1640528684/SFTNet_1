@@ -294,10 +294,10 @@ class NAFBlock(nn.Module):
         self.fpn = nn.ModuleList()
         self.channel_adapters = nn.ModuleList()
         self.middle_blocks = nn.ModuleList()
-        self.denoising_module = DenoisingModule(
-            in_channels=width,  # 这里会自动适配通道
-            num_blocks=1
-        )
+        # self.denoising_module = DenoisingModule(
+        #     in_channels=width,  # 这里会自动适配通道
+        #     num_blocks=1
+        # )
 
         enc_channels = []
 
@@ -376,7 +376,7 @@ class NAFBlock(nn.Module):
         x = self.middle_proj(x)
         
         # 添加去噪模块
-        x = self.denoising_module(x)
+        #x = self.denoising_module(x)
 
         # 解码器和FPN部分
         fpn_features = []
@@ -396,7 +396,7 @@ class NAFBlock(nn.Module):
             x = x + enc_skip
             
             # 去噪模块 每个解码器块前插入
-            x = self.denoising_module(x)
+            #x = self.denoising_module(x)
             
             x = decoder(x)
             fpn_out = fpn_block(x, enc_skip)
