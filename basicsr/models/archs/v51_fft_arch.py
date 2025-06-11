@@ -365,6 +365,8 @@ class NAFBlock(nn.Module):
         encs = []
         for encoder in self.encoders:
             x = encoder(x)
+            # 在每个编码器之后添加去噪模块 测试去噪
+            x = self.denoising_module(x)
             encs.append(x)
             x = F.max_pool2d(x, 2)
 
