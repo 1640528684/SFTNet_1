@@ -294,10 +294,10 @@ class NAFBlock(nn.Module):
         self.fpn = nn.ModuleList()
         self.channel_adapters = nn.ModuleList()
         self.middle_blocks = nn.ModuleList()
-        self.denoising_module = DenoisingModule(
-            in_channels=width,  # 这里会自动适配通道
-            num_blocks=1
-        )
+        # self.denoising_module = DenoisingModule(
+        #     in_channels=width,  # 这里会自动适配通道
+        #     num_blocks=1
+        # )
 
         enc_channels = []
 
@@ -320,6 +320,12 @@ class NAFBlock(nn.Module):
             enc_channels.append(out_channels)
         
         print(f"Last encoder channel count: {enc_channels[-1]}")
+        
+        # 动态设置去噪模块的输入通道数
+        self.denoising_module = DenoisingModule(
+            in_channels=enc_channels[-1],  # 使用最后一个编码器的输出通道数
+            num_blocks=1
+        )
 
         # 定义中间的Transformer块
         in_channels_middle = enc_channels[-1]
