@@ -300,6 +300,7 @@ class NAFBlock(nn.Module):
         # )
 
         enc_channels = []
+        self.denoising_modules = nn.ModuleList()  # 改为ModuleList
 
         # 定义编码器
         for i in range(len(enc_blk_nums)):
@@ -318,14 +319,14 @@ class NAFBlock(nn.Module):
                 layers.append(nn.ReLU())
             self.encoders.append(nn.Sequential(*layers))
             enc_channels.append(out_channels)
+            # 为每个编码器创建独立的DenoisingModule
+            self.denoising_modules.append(
+                DenoisingModule(in_channels=out_channels, num_blocks=1)
+            )
         
         print(f"Last encoder channel count: {enc_channels[-1]}")
         
-        # 动态设置去噪模块的输入通道数
-        self.denoising_module = DenoisingModule(
-            in_channels=enc_channels[-1],  # 使用最后一个编码器的输出通道数
-            num_blocks=1
-        )
+        
 
         # 定义中间的Transformer块
         in_channels_middle = enc_channels[-1]
@@ -369,10 +370,9 @@ class NAFBlock(nn.Module):
         x, original_h, original_w = self._check_image_size(x)
         # 编码器部分
         encs = []
-        for encoder in self.encoders:
+        for i, (encoder, denoise) in enumerate(zip(self.encoders, self.denoising_modules)):
             x = encoder(x)
-            # 在每个编码器之后添加去噪模块 测试去噪
-            x = self.denoising_module(x)
+            x = denoise(x)  # 使用对应的DenoisingModule
             encs.append(x)
             x = F.max_pool2d(x, 2)
 
