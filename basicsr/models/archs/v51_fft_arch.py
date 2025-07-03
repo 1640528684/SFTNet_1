@@ -246,186 +246,192 @@ class AttentionBlock(nn.Module):
         return out
 
 
-class TransformerBlock(nn.Module):
-    def __init__(self, dim, ffn_expansion_factor=1, bias=False, LayerNorm_type='WithBias', att=False):
-        super(TransformerBlock, self).__init__()
-        self.attention = AttentionBlock(dim)
-        self.norm1 = LayerNorm(dim, LayerNorm_type)
-        self.norm2 = LayerNorm(dim, LayerNorm_type)
-        self.ffn = DFFN(dim, ffn_expansion_factor, bias)
+# class TransformerBlock(nn.Module):
+#     def __init__(self, dim, ffn_expansion_factor=1, bias=False, LayerNorm_type='WithBias', att=False):
+#         super(TransformerBlock, self).__init__()
+#         self.attention = AttentionBlock(dim)
+#         self.norm1 = LayerNorm(dim, LayerNorm_type)
+#         self.norm2 = LayerNorm(dim, LayerNorm_type)
+#         self.ffn = DFFN(dim, ffn_expansion_factor, bias)
 
-    # def forward(self, x):
-    #     x = x + self.attention(self.norm1(x))
-    #     x = x + self.ffn(self.norm2(x))
-    #     return x
+
+#     def forward(self, x):
+#         x = x + checkpoint(self.attention, self.norm1(x))  # 启用梯度检查点
+#         x = x + checkpoint(self.ffn, self.norm2(x))        # 启用梯度检查点
+#         return x
+class TransformerBlock(nn.Module):
+    def __init__(self, dim, ffn_expansion_factor=1.0):
+        super().__init__()
+        self.attention = AttentionBlock(dim)
+        self.ffn = DFFN(dim, ffn_expansion_factor)
+        
     def forward(self, x):
-        x = x + checkpoint(self.attention, self.norm1(x))  # 启用梯度检查点
-        x = x + checkpoint(self.ffn, self.norm2(x))        # 启用梯度检查点
+        x = x + self.attention(x)
+        x = x + self.ffn(x)
         return x
 
 
-class FPNBlock(nn.Module): 
+class FPNBlock(nn.Module):
+    """特征金字塔模块"""
     def __init__(self, in_channels, out_channels):
-        super(FPNBlock, self).__init__()
-        self.lateral_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-        # Smooth layer: 3×3 Conv for refinement
-        self.smooth_conv = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
-        self.relu = nn.ReLU(inplace=True)
-
+        super().__init__()
+        self.lateral_conv = nn.Conv2d(in_channels, out_channels, 1)
+        self.smooth_conv = nn.Conv2d(out_channels, out_channels, 3, padding=1)
+        
     def forward(self, x, top_down=None):
-        """
-        Args:
-            x (Tensor): Low-level feature from encoder (e.g., C4).
-            top_down (Tensor): High-level feature from previous FPN block (e.g., upsampled C5).
-        Returns:
-            Tensor: Processed feature after fusion.
-        """
-        # Step 1: Lateral connection (1×1 Conv)
         lateral = self.lateral_conv(x)
-
-        # Step 2: Upsample top-down feature to match spatial dimensions of lateral
         if top_down is not None:
-            if top_down.shape[2:] != lateral.shape[2:]:
-                top_down = F.interpolate(top_down, size=lateral.shape[2:], mode='bilinear', align_corners=True)
-            lateral += top_down
-
-        # Step 3: Smooth and refine the fused features
-        out = self.smooth_conv(lateral)
-        out = self.relu(out)
-        return out
+            lateral += F.interpolate(top_down, size=lateral.shape[2:], mode='bilinear')
+        return self.smooth_conv(lateral)
 
     
 class NAFBlock(nn.Module):
-    def __init__(self, img_channel=3, width=64, enc_blk_nums=[1, 1, 1, 14],    
-                 middle_blk_num=1, dec_blk_nums=[1, 1, 1, 1], patch_size=8):    
+    def __init__(self, img_channel=3, width=48, enc_blk_nums=[2,2,3,6], 
+                middle_blk_num=2, dec_blk_nums=[4,2,1,1], patch_size=8,
+                denoising_config={'enable_layers': [1,2,3], 'type': 'adaptive'}):
         super().__init__()
         self.patch_size = patch_size
         self.width = width
+        
+        # ---------------------------- 编码器部分 ----------------------------
         self.encoders = nn.ModuleList()
+        self.denoising_modules = nn.ModuleList()
+        enc_channels = []
+        
+        for i in range(len(enc_blk_nums)):
+            in_ch = img_channel if i == 0 else width * (2 ** (i-1))
+            out_ch = width * (2 ** i)
+            enc_channels.append(out_ch)
+            
+            # 增强的编码器块（带残差连接）
+            layers = []
+            for _ in range(enc_blk_nums[i]):
+                layers += [
+                    nn.Conv2d(in_ch if _ == 0 else out_ch, out_ch, 3, padding=1),
+                    nn.GELU(),
+                    nn.Conv2d(out_ch, out_ch, 3, padding=1),
+                    ChannelAttention(out_ch)  # 通道注意力
+                ]
+                if _ > 0:  # 残差连接
+                    layers.append(nn.Conv2d(out_ch, out_ch, 1))
+            self.encoders.append(nn.Sequential(*layers))
+            
+            # 动态创建去噪模块
+            if i in denoising_config['enable_layers']:
+                if denoising_config['type'] == 'adaptive':
+                    self.denoising_modules.append(AdaptiveDenoiser(out_ch, i))
+                else:
+                    self.denoising_modules.append(DenoisingModule(out_ch))
+            else:
+                self.denoising_modules.append(nn.Identity())
+
+        # ---------------------------- 中间部分 ----------------------------
+        self.middle_blocks = nn.ModuleList()
+        for _ in range(middle_blk_num):
+            self.middle_blocks.append(
+                TransformerBlock(enc_channels[-1], ffn_expansion_factor=1.0)
+            )
+        
+        self.middle_proj = nn.Sequential(
+            nn.Conv2d(enc_channels[-1], width, 1),
+            LayerNorm2d(width)
+        )
+
+        # ---------------------------- 解码器部分 ----------------------------
         self.decoders = nn.ModuleList()
         self.ups = nn.ModuleList()
         self.fpn = nn.ModuleList()
-        self.channel_adapters = nn.ModuleList()
-        self.middle_blocks = nn.ModuleList()
-        self.denoising_modules = nn.ModuleList()  # ModuleList存储多个去噪模块
         
-        enc_channels = []
-
-        # 定义编码器
-        for i in range(len(enc_blk_nums)):
-            if i == 0:
-                in_channels = img_channel
-                out_channels = width
-            else:
-                in_channels = width * (2 ** (i - 1))
-                out_channels = width * (2 ** i)
-            layers = [
-                nn.Conv2d(in_channels, out_channels, 3, padding=1),
-                nn.ReLU()
-            ]
-            for _ in range(enc_blk_nums[i] - 1):
-                layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
-                layers.append(nn.ReLU())
-            self.encoders.append(nn.Sequential(*layers))
-            enc_channels.append(out_channels)
-            
-            # 关键修改：确保DenoisingModule输入输出通道一致
-            self.denoising_modules.append(
-                DenoisingModule(
-                    in_channels=out_channels,
-                    out_channels=out_channels,  # 明确指定输出通道
-                    num_blocks=1
-                )
-            )
+        # 通道适配器（统一为width通道）
+        self.channel_adapters = nn.ModuleList([
+            nn.Conv2d(c, width, 1) for c in enc_channels
+        ])
         
-        print(f"Last encoder channel count: {enc_channels[-1]}")
+        # 特征融合卷积
+        self.fusion_conv = nn.Sequential(
+            nn.Conv2d(width * len(enc_blk_nums), width, 1),
+            ChannelAttention(width)  # 融合后加注意力
+        )
         
-        # 定义中间的Transformer块
-        in_channels_middle = enc_channels[-1]
-        for _ in range(middle_blk_num):
-            self.middle_blocks.append(TransformerBlock(in_channels_middle))
-        
-        # 添加一个通道压缩层，将中间块输出的通道数压缩到width
-        self.middle_proj = nn.Conv2d(in_channels_middle, width, kernel_size=1, bias=False)
-        
-        # 在 NAFBlock 中定义一个通道适配器
-        self.channel_adapter = nn.Conv2d(width, width, kernel_size=1, bias=False)
-        
-        # 定义解码器
         for i in range(len(dec_blk_nums)):
-            in_channels = width
-            out_channels = width
-            layers = [
-                nn.Conv2d(in_channels, out_channels, 3, padding=1),
-                nn.ReLU()
-            ]
-            for _ in range(dec_blk_nums[i] - 1):
-                layers.append(nn.Conv2d(out_channels, out_channels, 3, padding=1))
-                layers.append(nn.ReLU())
+            layers = []
+            for _ in range(dec_blk_nums[i]):
+                layers += [
+                    nn.Conv2d(width, width, 3, padding=1),
+                    nn.GELU(),
+                    ChannelAttention(width)
+                ]
             self.decoders.append(nn.Sequential(*layers))
-            self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False))
-        
-        # 定义channel_adapters，确保输入通道数与编码器的输出通道数一致
-        for c in enc_channels:
-            self.channel_adapters.append(
-                nn.Conv2d(c, width, kernel_size=1, bias=False)
-            )
-
-        # 定义FPNBlock
-        for _ in range(len(enc_blk_nums)):
-            print(f"Initializing FPNBlock with in_channels={width}, out_channels={width}")
+            self.ups.append(nn.Upsample(scale_factor=2, mode='bilinear'))
             self.fpn.append(FPNBlock(width, width))
 
-        self.final_conv = nn.Conv2d(width, img_channel, kernel_size=1)
-    
+        # ---------------------------- 输出部分 ----------------------------
+        self.final_conv = nn.Sequential(
+            nn.Conv2d(width, width, 3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(width, img_channel, 1)
+        )
+
     def forward(self, x):
+        # 输入尺寸检查
         x, original_h, original_w = self._check_image_size(x)
-        # 编码器部分
-        encs = []
+        
+        # ---------------------------- 编码 ----------------------------
+        enc_features = []
         for i, (encoder, denoise) in enumerate(zip(self.encoders, self.denoising_modules)):
             x = encoder(x)
-            x = denoise(x)  # 使用对应的DenoisingModule
-            encs.append(x)
+            if isinstance(denoise, AdaptiveDenoiser):
+                x = denoise(x, i)  # 传递层索引
+            else:
+                x = denoise(x)
+            enc_features.append(x)
             x = F.max_pool2d(x, 2)
 
-        # 中间Transformer块
+        # ---------------------------- 中间转换 ----------------------------
         for blk in self.middle_blocks:
             x = blk(x)
-        
-        # 使用middle_proj将中间块输出的通道数调整为width
         x = self.middle_proj(x)
-        
-        # 解码器和FPN部分
+
+        # ---------------------------- 解码 ----------------------------
         fpn_features = []
         for i, (decoder, up, fpn_block) in enumerate(zip(
                 self.decoders, self.ups, self.fpn
         )):
-            enc_skip = encs[-i - 1]
-            enc_skip = self.channel_adapters[-i - 1](enc_skip)
-            target_size = x.size()[2:]
-            enc_skip = F.interpolate(enc_skip, size=target_size, mode='bilinear')
-
-            x = up(x)
-
-            if x.shape[2:] != enc_skip.shape[2:]:
-                enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear')
-
-            x = x + enc_skip
+            # 跳跃连接处理
+            skip = self.channel_adapters[-i-1](enc_features[-i-1])
+            skip = F.interpolate(skip, size=x.shape[2:], mode='bilinear')
             
+            x = up(x)
+            x = x + skip  # 残差连接
+            
+            # 解码器处理
             x = decoder(x)
-            fpn_out = fpn_block(x, enc_skip)
-            fpn_features.append(fpn_out)
+            fpn_features.append(fpn_block(x, skip))
 
-        # 特征融合和最终卷积
-        max_size = (max(f.size(2) for f in fpn_features),
-                    max(f.size(3) for f in fpn_features))
-        fused = sum(F.interpolate(f, size=max_size, mode='bilinear') for f in fpn_features)
-        x = x + fused
-        x = self.final_conv(x)
-        # 恢复到原始大小
-        x = x[:, :, :original_h, :original_w]
+        # ---------------------------- 特征融合 ----------------------------
+        # 多尺度特征融合
+        max_size = (max(f.size(2) for f in fpn_features), 
+                   max(f.size(3) for f in fpn_features))
+        fused = torch.cat([
+            F.interpolate(f, size=max_size, mode='bilinear') 
+            for f in fpn_features
+        ], dim=1)
+        fused = self.fusion_conv(fused)
         
-        return x
+        # 最终输出
+        x = x + fused  # 全局残差连接
+        x = self.final_conv(x)
+        return x[:, :, :original_h, :original_w]  # 裁剪回原始尺寸
+
+    def _check_image_size(self, x):
+        _, _, h, w = x.size()
+        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
+        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
+        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+        return x, h, w
+    
+
+
 
 class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
     def __init__(self, *args, train_size=(1, 3, 256, 256), fast_imp=False, **kwargs):
@@ -444,63 +450,95 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
         return x,h,w
 
-class DenoisingModule(nn.Module):
-    def __init__(self, in_channels=64, out_channels=None, num_blocks=1):
-        super(DenoisingModule, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels if out_channels is not None else in_channels
-        
-        # 第一层卷积保持通道数不变
-        self.conv_first = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
-        
-        # Transformer块
-        blocks = []
-        for _ in range(num_blocks):
-            blocks.append(TransformerBlock(dim=in_channels))
-        self.transformer_blocks = nn.Sequential(*blocks)
-        
-        # DFFN模块
-        self.dffn = DFFN(dim=in_channels, ffn_expansion_factor=1.0)  # 设置为1.0确保不扩展通道
-        
-        # 最后一层卷积处理输出通道
-        self.conv_last = nn.Conv2d(in_channels, self.out_channels, kernel_size=3, padding=1)
-        
-        # 残差连接适配器
-        if in_channels != self.out_channels:
-            self.residual_adapter = nn.Conv2d(in_channels, self.out_channels, kernel_size=1)
-        else:
-            self.residual_adapter = None
+# class DenoisingModule(nn.Module):
+#     def __init__(self, in_channels=64, out_channels=None, num_blocks=1):
+#         super(DenoisingModule, self).__init__()
+#         self.in_channels = in_channels
+#         self.out_channels = out_channels if out_channels is not None else in_channels
+#         # 第一层卷积保持通道数不变
+#         self.conv_first = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
+#         # Transformer块
+#         blocks = []
+#         for _ in range(num_blocks):
+#             blocks.append(TransformerBlock(dim=in_channels))
+#         self.transformer_blocks = nn.Sequential(*blocks)
+#         # DFFN模块
+#         self.dffn = DFFN(dim=in_channels, ffn_expansion_factor=1.0)  # 设置为1.0确保不扩展通道
+#         # 最后一层卷积处理输出通道
+#         self.conv_last = nn.Conv2d(in_channels, self.out_channels, kernel_size=3, padding=1)
+#         # 残差连接适配器
+#         if in_channels != self.out_channels:
+#             self.residual_adapter = nn.Conv2d(in_channels, self.out_channels, kernel_size=1)
+#         else:
+#             self.residual_adapter = None
+#     def forward(self, x):
+#         identity = x
+#         # 第一层处理
+#         x = F.relu(self.conv_first(x))
+#         # Transformer处理
+#         x = self.transformer_blocks(x)
+#         # DFFN处理
+#         x = self.dffn(x)
+#         # 最后一层处理
+#         x = self.conv_last(x)  
+#         # 处理残差连接
+#         if identity.shape[1] != self.out_channels:
+#             if self.residual_adapter is not None:
+#                 identity = self.residual_adapter(identity)
+#             else:
+#                 # 如果没定义适配器但需要调整通道，使用1x1卷积
+#                 identity = F.conv2d(identity, 
+#                                    torch.eye(self.out_channels, identity.shape[1])
+#                                    .unsqueeze(-1).unsqueeze(-1)
+#                                    .to(identity.device))    
+#         # 残差连接
+#         x = x + identity  
+#         return x
+class ChannelAttention(nn.Module):
+    """轻量通道注意力"""
+    def __init__(self, channel, reduction=4):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction),
+            nn.ReLU(),
+            nn.Linear(channel // reduction, channel),
+            nn.Sigmoid()
+        )
 
     def forward(self, x):
-        identity = x
+        b, c, _, _ = x.shape
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+class AdaptiveDenoiser(nn.Module):
+    def __init__(self, channels, layer_idx):
+        super().__init__()
+        self.weight = nn.Parameter(torch.tensor(0.2 + 0.2 * layer_idx))  # 深度加权
+        self.conv = nn.Sequential(
+            nn.Conv2d(channels, channels//4, 1),
+            nn.GELU(),
+            nn.Conv2d(channels//4, channels//4, 3, padding=1, groups=channels//4),
+            nn.GELU(),
+            nn.Conv2d(channels//4, channels, 1)
+        )
         
-        # 第一层处理
-        x = F.relu(self.conv_first(x))
+    def forward(self, x):
+        return x + self.weight * self.conv(x)  # 加权残差
+    
+class DenoisingModule(nn.Module):
+    """标准去噪模块（兼容旧配置）"""
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(channels, channels//2, 3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(channels//2, channels, 3, padding=1)
+        )
         
-        # Transformer处理
-        x = self.transformer_blocks(x)
-        
-        # DFFN处理
-        x = self.dffn(x)
-        
-        # 最后一层处理
-        x = self.conv_last(x)
-        
-        # 处理残差连接
-        if identity.shape[1] != self.out_channels:
-            if self.residual_adapter is not None:
-                identity = self.residual_adapter(identity)
-            else:
-                # 如果没定义适配器但需要调整通道，使用1x1卷积
-                identity = F.conv2d(identity, 
-                                   torch.eye(self.out_channels, identity.shape[1])
-                                   .unsqueeze(-1).unsqueeze(-1)
-                                   .to(identity.device))
-        
-        # 残差连接
-        x = x + identity
-        
-        return x
+    def forward(self, x):
+        return x + self.conv(x)
 
 if __name__ == '__main__':
     img_channel = 3
