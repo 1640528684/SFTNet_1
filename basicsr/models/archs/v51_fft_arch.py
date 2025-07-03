@@ -105,8 +105,9 @@ class SimpleGate2(nn.Module):
 #         # === 恢复原始图像大小 ===
 #         x = x[:, :, :H, :W]  # 剪裁回原始尺寸
 #         return x
+
 class DFFN(nn.Module):
-    def __init__(self, dim, ffn_expansion_factor=2, bias=False, patch_size=8):
+    def __init__(self, dim, ffn_expansion_factor=1.5, bias=False, patch_size=8):  # 默认1.5
         super(DFFN, self).__init__()
         self.patch_size = patch_size
         self.dim = dim
@@ -127,6 +128,8 @@ class DFFN(nn.Module):
         self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)
         self.before_dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=1, bias=bias)
         self.dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=3, padding=1, groups=self.half_hidden_features, bias=bias)
+        
+        # 关键修复：确保输出通道数与输入一致
         self.project_out = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
 
     def forward(self, x):
@@ -156,6 +159,8 @@ class DFFN(nn.Module):
 
         x = self.before_dwconv(x)
         x = self.dwconv(x)
+        
+        # 确保输出通道与原始输入一致
         x = self.project_out(x)
 
         x = x[:, :, :H, :W]
@@ -293,7 +298,7 @@ class NAFBlock(nn.Module):
         self.fpn = nn.ModuleList()
         self.channel_adapters = nn.ModuleList()
         self.middle_blocks = nn.ModuleList()
-        self.denoising_modules = nn.ModuleList()  # 改为ModuleList存储多个去噪模块
+        self.denoising_modules = nn.ModuleList()  # ModuleList存储多个去噪模块
         
         enc_channels = []
 
@@ -407,10 +412,6 @@ class NAFBlock(nn.Module):
         # 恢复到原始大小
         x = x[:, :, :original_h, :original_w]
         
-        # 释放不必要的中间变量
-        del encs, fpn_features, fused
-        torch.cuda.empty_cache()
-        
         return x
 
 class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
@@ -431,31 +432,58 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
         return x,h,w
 
 class DenoisingModule(nn.Module):
-    def __init__(self, in_channels=64, out_channels=64, num_blocks=1):  # 减少Transformer块数
+    def __init__(self, in_channels=64, out_channels=64, num_blocks=1):
         super(DenoisingModule, self).__init__()
-        
         if out_channels is None:
             out_channels = in_channels
         self.num_features = in_channels
+        self.out_channels = out_channels
 
         self.conv_first = nn.Conv2d(in_channels, self.num_features, kernel_size=3, padding=1)
 
         blocks = []
-        for _ in range(num_blocks):  # 减少Transformer块的数量
+        for _ in range(num_blocks):
             blocks.append(TransformerBlock(dim=self.num_features))
         self.transformer_blocks = nn.Sequential(*blocks)
 
-        self.dffn = DFFN(dim=self.num_features, ffn_expansion_factor=1.5)  # 保持DFFN模块不变
-
+        # 确保DFFN输入输出通道一致
+        self.dffn = DFFN(dim=self.num_features, ffn_expansion_factor=1.5)
+        
         self.conv_last = nn.Conv2d(self.num_features, out_channels, kernel_size=3, padding=1)
+        
+        # 添加通道适配器（如果需要）
+        if in_channels != out_channels:
+            self.residual_adapter = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        else:
+            self.residual_adapter = None
 
     def forward(self, x):
         res = x
+        
+        # 保存原始通道数用于检查
+        original_channels = x.shape[1]
+        
         x = F.relu(self.conv_first(x))
         x = self.transformer_blocks(x)
         x = self.dffn(x)
         x = self.conv_last(x)
-        x += res  # 残差连接
+        
+        # 通道数安全检查与适配
+        if x.shape[1] != original_channels or x.shape[1] != self.out_channels:
+            raise ValueError(f"通道数异常: 输入{original_channels}, 输出{x.shape[1]}, 预期{self.out_channels}")
+        
+        # 需要时调整残差连接通道数
+        if res.shape[1] != x.shape[1]:
+            if self.residual_adapter is not None:
+                res = self.residual_adapter(res)
+            else:
+                # 动态创建适配器（仅用于兼容性）
+                res = F.conv2d(res, 
+                              torch.eye(x.shape[1], res.shape[1])
+                                .unsqueeze(-1).unsqueeze(-1)
+                                .to(res.device))
+        
+        x += res
         return x
 
 if __name__ == '__main__':
