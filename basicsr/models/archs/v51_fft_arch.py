@@ -107,17 +107,18 @@ class SimpleGate2(nn.Module):
 #         return x
 
 class DFFN(nn.Module):
-    def __init__(self, dim, ffn_expansion_factor=1.5, bias=False, patch_size=8):  # 默认1.5
+    def __init__(self, dim, ffn_expansion_factor=1.0, bias=False, patch_size=8):
         super(DFFN, self).__init__()
         self.patch_size = patch_size
         self.dim = dim
         self.ffn_expansion_factor = ffn_expansion_factor
         self.bias = bias
+        
+        # 确保不扩展通道
+        self.hidden_features = dim
+        self.half_hidden_features = dim // 2
 
-        self.hidden_features = int(dim * ffn_expansion_factor)
-        self.half_hidden_features = self.hidden_features // 2
-
-        # FFT 参数
+        # FFT参数
         self.fft = nn.Parameter(torch.randn(
             self.hidden_features,
             patch_size,
@@ -125,46 +126,54 @@ class DFFN(nn.Module):
         ))
 
         # 网络结构
-        self.project_in = nn.Conv2d(dim, self.hidden_features, kernel_size=1, bias=bias)
+        self.project_in = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
         self.before_dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=1, bias=bias)
-        self.dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=3, padding=1, groups=self.half_hidden_features, bias=bias)
-        
-        # 关键修复：确保输出通道数与输入一致
+        self.dwconv = nn.Conv2d(self.half_hidden_features, self.half_hidden_features, kernel_size=3, padding=1, 
+                               groups=self.half_hidden_features, bias=bias)
         self.project_out = nn.Conv2d(self.half_hidden_features, dim, kernel_size=1, bias=bias)
 
     def forward(self, x):
-        identity = x  # 保存原始输入用于残差连接
-
+        identity = x
+        
         B, C, H, W = x.shape
+        
+        # 填充处理
         pad_h = (self.patch_size - H % self.patch_size) % self.patch_size
         pad_w = (self.patch_size - W % self.patch_size) % self.patch_size
         if pad_h > 0 or pad_w > 0:
             x = F.pad(x, (0, pad_w, 0, pad_h))
-
+        
+        # FFT处理
         Hp, Wp = H + pad_h, W + pad_w
         x = self.project_in(x)
-
-        x_patch = rearrange(x, 'b c (h p1) (w p2) -> b h w c p1 p2', p1=self.patch_size, p2=self.patch_size)
+        
+        x_patch = rearrange(x, 'b c (h p1) (w p2) -> b h w c p1 p2', 
+                          p1=self.patch_size, p2=self.patch_size)
         x_fft_input = rearrange(x_patch, 'b h w c p1 p2 -> (b h w) c p1 p2')
         x_fft = torch.fft.rfft2(x_fft_input)
         expanded_fft = self.fft.unsqueeze(0).expand(x_fft.shape[0], -1, -1, -1)
         x_fft = x_fft * expanded_fft
         x = torch.fft.irfft2(x_fft, s=(self.patch_size, self.patch_size))
-
-        x = rearrange(x, '(b h w) c p1 p2 -> b h w c p1 p2', b=B, h=Hp // self.patch_size, w=Wp // self.patch_size)
-        x = rearrange(x, 'b h w c p1 p2 -> b c (h p1) (w p2)', p1=self.patch_size, p2=self.patch_size)
-
+        
+        # 重组张量
+        x = rearrange(x, '(b h w) c p1 p2 -> b h w c p1 p2', 
+                     b=B, h=Hp//self.patch_size, w=Wp//self.patch_size)
+        x = rearrange(x, 'b h w c p1 p2 -> b c (h p1) (w p2)',
+                     p1=self.patch_size, p2=self.patch_size)
+        
+        # 通道处理
         x1, x2 = x.chunk(2, dim=1)
         x = F.gelu(x1) * x2
-
+        
+        # 深度可分离卷积
         x = self.before_dwconv(x)
         x = self.dwconv(x)
-        
-        # 确保输出通道与原始输入一致
         x = self.project_out(x)
-
+        
+        # 裁剪并添加残差
         x = x[:, :, :H, :W]
-        x = x + identity  # 残差连接
+        x = x + identity
+        
         return x
 
 
@@ -320,9 +329,13 @@ class NAFBlock(nn.Module):
             self.encoders.append(nn.Sequential(*layers))
             enc_channels.append(out_channels)
             
-            # 为每个编码器创建独立的DenoisingModule
+            # 关键修改：确保DenoisingModule输入输出通道一致
             self.denoising_modules.append(
-                DenoisingModule(in_channels=out_channels, num_blocks=1)
+                DenoisingModule(
+                    in_channels=out_channels,
+                    out_channels=out_channels,  # 明确指定输出通道
+                    num_blocks=1
+                )
             )
         
         print(f"Last encoder channel count: {enc_channels[-1]}")
@@ -432,58 +445,61 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
         return x,h,w
 
 class DenoisingModule(nn.Module):
-    def __init__(self, in_channels=64, out_channels=64, num_blocks=1):
+    def __init__(self, in_channels=64, out_channels=None, num_blocks=1):
         super(DenoisingModule, self).__init__()
-        if out_channels is None:
-            out_channels = in_channels
-        self.num_features = in_channels
-        self.out_channels = out_channels
-
-        self.conv_first = nn.Conv2d(in_channels, self.num_features, kernel_size=3, padding=1)
-
+        self.in_channels = in_channels
+        self.out_channels = out_channels if out_channels is not None else in_channels
+        
+        # 第一层卷积保持通道数不变
+        self.conv_first = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
+        
+        # Transformer块
         blocks = []
         for _ in range(num_blocks):
-            blocks.append(TransformerBlock(dim=self.num_features))
+            blocks.append(TransformerBlock(dim=in_channels))
         self.transformer_blocks = nn.Sequential(*blocks)
-
-        # 确保DFFN输入输出通道一致
-        self.dffn = DFFN(dim=self.num_features, ffn_expansion_factor=1.5)
         
-        self.conv_last = nn.Conv2d(self.num_features, out_channels, kernel_size=3, padding=1)
+        # DFFN模块
+        self.dffn = DFFN(dim=in_channels, ffn_expansion_factor=1.0)  # 设置为1.0确保不扩展通道
         
-        # 添加通道适配器（如果需要）
-        if in_channels != out_channels:
-            self.residual_adapter = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        # 最后一层卷积处理输出通道
+        self.conv_last = nn.Conv2d(in_channels, self.out_channels, kernel_size=3, padding=1)
+        
+        # 残差连接适配器
+        if in_channels != self.out_channels:
+            self.residual_adapter = nn.Conv2d(in_channels, self.out_channels, kernel_size=1)
         else:
             self.residual_adapter = None
 
     def forward(self, x):
-        res = x
+        identity = x
         
-        # 保存原始通道数用于检查
-        original_channels = x.shape[1]
-        
+        # 第一层处理
         x = F.relu(self.conv_first(x))
+        
+        # Transformer处理
         x = self.transformer_blocks(x)
+        
+        # DFFN处理
         x = self.dffn(x)
+        
+        # 最后一层处理
         x = self.conv_last(x)
         
-        # 通道数安全检查与适配
-        if x.shape[1] != original_channels or x.shape[1] != self.out_channels:
-            raise ValueError(f"通道数异常: 输入{original_channels}, 输出{x.shape[1]}, 预期{self.out_channels}")
-        
-        # 需要时调整残差连接通道数
-        if res.shape[1] != x.shape[1]:
+        # 处理残差连接
+        if identity.shape[1] != self.out_channels:
             if self.residual_adapter is not None:
-                res = self.residual_adapter(res)
+                identity = self.residual_adapter(identity)
             else:
-                # 动态创建适配器（仅用于兼容性）
-                res = F.conv2d(res, 
-                              torch.eye(x.shape[1], res.shape[1])
-                                .unsqueeze(-1).unsqueeze(-1)
-                                .to(res.device))
+                # 如果没定义适配器但需要调整通道，使用1x1卷积
+                identity = F.conv2d(identity, 
+                                   torch.eye(self.out_channels, identity.shape[1])
+                                   .unsqueeze(-1).unsqueeze(-1)
+                                   .to(identity.device))
         
-        x += res
+        # 残差连接
+        x = x + identity
+        
         return x
 
 if __name__ == '__main__':
