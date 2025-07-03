@@ -29,7 +29,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 4
-    batch_size_per_gpu: 8
+    batch_size_per_gpu: 4
     dataset_enlarge_ratio: 1
     transforms:
       - [Resize, {'size': [128, 128]}]
@@ -58,10 +58,10 @@ datasets:
 network_g:
   type: v51fftLocal
   width: 64  #64
-  enc_blk_nums: [1, 1, 1, 14]  #[1, 1, 1, 28]
-  middle_blk_num: 1
-  dec_blk_nums: [1, 1, 1, 1]
-  patch_size: 8 # 新增 patch_size 参数
+  enc_blk_nums: [1, 1, 1, 8]  #[1, 1, 1, 28]
+  middle_blk_num: 2
+  dec_blk_nums: [6, 2, 1, 1]
+  patch_size: 8
 
 # path
 path:
