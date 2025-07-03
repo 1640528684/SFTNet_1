@@ -280,9 +280,8 @@ class FPNBlock(nn.Module):
         out = self.relu(out)
         return out
 
-
+    
 class NAFBlock(nn.Module):
-    #enc_blk_nums=[1, 1, 1, 28]
     def __init__(self, img_channel=3, width=64, enc_blk_nums=[1, 1, 1, 14],    
                  middle_blk_num=1, dec_blk_nums=[1, 1, 1, 1], patch_size=8):    
         super().__init__()
@@ -294,13 +293,9 @@ class NAFBlock(nn.Module):
         self.fpn = nn.ModuleList()
         self.channel_adapters = nn.ModuleList()
         self.middle_blocks = nn.ModuleList()
-        # self.denoising_module = DenoisingModule(
-        #     in_channels=width,  # 这里会自动适配通道
-        #     num_blocks=1
-        # )
-
+        self.denoising_modules = nn.ModuleList()  # 改为ModuleList存储多个去噪模块
+        
         enc_channels = []
-        self.denoising_modules = nn.ModuleList()  # 改为ModuleList
 
         # 定义编码器
         for i in range(len(enc_blk_nums)):
@@ -319,6 +314,7 @@ class NAFBlock(nn.Module):
                 layers.append(nn.ReLU())
             self.encoders.append(nn.Sequential(*layers))
             enc_channels.append(out_channels)
+            
             # 为每个编码器创建独立的DenoisingModule
             self.denoising_modules.append(
                 DenoisingModule(in_channels=out_channels, num_blocks=1)
@@ -326,15 +322,13 @@ class NAFBlock(nn.Module):
         
         print(f"Last encoder channel count: {enc_channels[-1]}")
         
-        
-
         # 定义中间的Transformer块
         in_channels_middle = enc_channels[-1]
         for _ in range(middle_blk_num):
             self.middle_blocks.append(TransformerBlock(in_channels_middle))
         
         # 添加一个通道压缩层，将中间块输出的通道数压缩到width
-        self.middle_proj = nn.Conv2d(in_channels_middle, width, kernel_size=1, bias=False)  # 修改为使用 enc_channels[-1]
+        self.middle_proj = nn.Conv2d(in_channels_middle, width, kernel_size=1, bias=False)
         
         # 在 NAFBlock 中定义一个通道适配器
         self.channel_adapter = nn.Conv2d(width, width, kernel_size=1, bias=False)
@@ -383,9 +377,6 @@ class NAFBlock(nn.Module):
         # 使用middle_proj将中间块输出的通道数调整为width
         x = self.middle_proj(x)
         
-        # 添加去噪模块
-        #x = self.denoising_module(x)
-
         # 解码器和FPN部分
         fpn_features = []
         for i, (decoder, up, fpn_block) in enumerate(zip(
@@ -402,9 +393,6 @@ class NAFBlock(nn.Module):
                 enc_skip = F.interpolate(enc_skip, size=x.shape[2:], mode='bilinear')
 
             x = x + enc_skip
-            
-            # 去噪模块 每个解码器块前插入
-            #x = self.denoising_module(x)
             
             x = decoder(x)
             fpn_out = fpn_block(x, enc_skip)
@@ -424,8 +412,6 @@ class NAFBlock(nn.Module):
         torch.cuda.empty_cache()
         
         return x
-    
-
 
 class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
     def __init__(self, *args, train_size=(1, 3, 256, 256), fast_imp=False, **kwargs):
