@@ -380,10 +380,8 @@ class NAFBlock(nn.Module):
         enc_features = []
         for i, (encoder, denoise) in enumerate(zip(self.encoders, self.denoising_modules)):
             x = encoder(x)
-            if isinstance(denoise, AdaptiveDenoiser):
-                x = denoise(x, i)  # 传递层索引
-            else:
-                x = denoise(x)
+            if isinstance(denoise, (AdaptiveDenoiser, DenoisingModule)):
+                x = denoise(x)  # 传递层索引
             enc_features.append(x)
             x = F.max_pool2d(x, 2)
 
@@ -537,8 +535,21 @@ class DenoisingModule(nn.Module):
             nn.Conv2d(channels//2, channels, 3, padding=1)
         )
         
-    def forward(self, x):
-        return x + self.conv(x)
+    def forward(self, x, layer_idx=None):  # 修改1：添加layer_idx参数
+        """
+        支持可选层索引
+        Args:
+            x: 输入张量
+            layer_idx: (可选) 当前处理的层索引
+        """
+        if layer_idx is not None:
+            # 使用layer_idx的特定逻辑
+            x = self.denoise(x, layer_idx)
+        else:
+            # 默认处理逻辑
+            x = self.denoise(x)
+        return x
+
 
 if __name__ == '__main__':
     img_channel = 3
