@@ -103,15 +103,18 @@ class BaseModel():
         ###############################################################
         # 新增的 CosineAnnealingWarmRestarts 实现
         elif scheduler_type == 'CosineAnnealingWarmRestarts':
+            # 修复：显式提取参数，避免重复传递
+            scheduler_params = {
+                'T_0': train_opt['scheduler'].pop('T_0', 10),
+                'T_mult': train_opt['scheduler'].pop('T_mult', 1),
+                'eta_min': train_opt['scheduler'].pop('eta_min', 1e-6)
+            }
+            # 剩余参数通过**传递
+            scheduler_params.update(train_opt['scheduler'])
+        
             for optimizer in self.optimizers:
                 self.schedulers.append(
-                    CosineAnnealingWarmRestarts(
-                        optimizer,
-                        T_0=train_opt['scheduler'].get('T_0', 10),
-                        T_mult=train_opt['scheduler'].get('T_mult', 1),
-                        eta_min=train_opt['scheduler'].get('eta_min', 1e-6),
-                        **train_opt['scheduler']
-                    ))
+                    CosineAnnealingWarmRestarts(optimizer, **scheduler_params))
         ###############################################################
         elif scheduler_type == 'LinearLR':
             for optimizer in self.optimizers:
