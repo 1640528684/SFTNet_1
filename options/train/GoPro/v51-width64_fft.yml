@@ -90,7 +90,8 @@ train:
   # 学习率调度
   scheduler:
     type: CosineAnnealingWarmRestarts
-    T_0: 80000              # 重启周期
+    T_0: 10             # 重启周期
+    T_mult: 2  # 周期倍增系数
     eta_min: !!float 1e-6    # 最小学习率
 
   total_iter: 400000

@@ -13,6 +13,7 @@ from torch.nn.parallel import DataParallel, DistributedDataParallel
 
 from basicsr.models import lr_scheduler as lr_scheduler
 from basicsr.utils.dist_util import master_only
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 
 logger = logging.getLogger('basicsr')
 
@@ -99,6 +100,19 @@ class BaseModel():
             for optimizer in self.optimizers:
                 self.schedulers.append(
                     torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **train_opt['scheduler']))
+        ###############################################################
+        # 新增的 CosineAnnealingWarmRestarts 实现
+        elif scheduler_type == 'CosineAnnealingWarmRestarts':
+            for optimizer in self.optimizers:
+                self.schedulers.append(
+                    CosineAnnealingWarmRestarts(
+                        optimizer,
+                        T_0=train_opt['scheduler'].get('T_0', 10),
+                        T_mult=train_opt['scheduler'].get('T_mult', 1),
+                        eta_min=train_opt['scheduler'].get('eta_min', 1e-6),
+                        **train_opt['scheduler']
+                    ))
+        ###############################################################
         elif scheduler_type == 'LinearLR':
             for optimizer in self.optimizers:
                 self.schedulers.append(
@@ -112,6 +126,9 @@ class BaseModel():
         else:
             raise NotImplementedError(
                 f'Scheduler {scheduler_type} is not implemented yet.')
+        
+        # 恢复原始配置（重要！）
+        train_opt['scheduler']['type'] = scheduler_type
 
     def get_bare_model(self, net):
         """Get bare model, especially under wrapping with
