@@ -26,7 +26,8 @@ import math
 from basicsr.data.transforms import (  # 直接从transforms.py导入
     PairedRandomCrop,
     Augment,
-    AdjustSize
+    AdjustSize,
+    Compose
 )
 import basicsr.data.transforms as transforms
 
@@ -104,7 +105,7 @@ def create_train_val_dataloader(opt, logger):
         ]
         if 'transforms' in dataset_opt:
             transform_list.extend([getattr(transforms, t[0])(**t[1]) for t in dataset_opt['transforms']])
-        dataset_opt['transform'] = transforms.Compose(transform_list)
+        dataset_opt['transform'] = Compose(transform_list)
 
         if phase == 'train':
             dataset_enlarge_ratio = dataset_opt.get('dataset_enlarge_ratio', 1)

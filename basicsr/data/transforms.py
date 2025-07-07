@@ -314,4 +314,27 @@ class AdjustSize:
             return img[..., :new_h, :new_w]
         raise TypeError(f"Unsupported type: {type(img)}")
 
+class Compose:
+    """BasicSR专用的transforms组合类（替代torchvision的Compose）"""
+    def __init__(self, transforms):
+        self.transforms = transforms
 
+    def __call__(self, data):
+        for t in self.transforms:
+            # 同时支持字典输入和图像直接输入
+            if isinstance(data, dict):
+                data = t(data)
+            else:
+                # 如果是单图像输入，临时包装为字典
+                tmp = {'img': data}
+                tmp = t(tmp)
+                data = tmp['img']
+        return data
+
+    def __repr__(self):
+        format_string = self.__class__.__name__ + '('
+        for t in self.transforms:
+            format_string += '\n'
+            format_string += '    {0}'.format(t)
+        format_string += '\n)'
+        return format_string
