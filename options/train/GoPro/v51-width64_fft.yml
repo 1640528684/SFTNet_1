@@ -31,11 +31,15 @@ datasets:
     num_worker_per_gpu: 4
     batch_size_per_gpu: 6
     dataset_enlarge_ratio: 1
+    # 使用BasicSR原生Transforms
     transforms:
-      - [RandomResizedCrop, {'size': 128, 'scale': (0.8, 1.2)}]  # 多尺度增强
-      - [ColorJitter, {'brightness': 0.1, 'contrast': 0.1}]      # 色彩扰动
-      - [RandomHorizontalFlip, {'p': 0.5}]
-      - [GaussianNoise, {'std': 0.01}]  # 模拟传感器噪声
+      - type: PairedRandomCrop  # 同步随机裁剪（必须放在第一步）
+        gt_patch_size: 128      # 目标裁剪尺寸
+        scale: 1                # 下采样比例（1表示lq和gt尺寸相同）
+      - type: Augment           # 同步增强（翻转/旋转）
+        hflip: true             # 启用水平翻转
+        rotation: true          # 启用90度旋转
+        vflip: false            # 禁用垂直翻转（通常不需要）
     phase: train
     scale: 1
     prefetch_mode: ~
