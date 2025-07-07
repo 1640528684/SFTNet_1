@@ -23,7 +23,10 @@ from basicsr.utils import (MessageLogger, check_resume, get_env_info, get_root_l
 from basicsr.utils.dist_util import get_dist_info, init_dist
 from basicsr.utils.options import dict2str, parse
 import math
-from torchvision import transforms  # 引入transforms模块
+from basicsr.data.transforms import (  # 直接从transforms.py导入
+    PairedRandomCrop,
+    Augment
+)
 
 #重新初始化 cuDNN
 torch.backends.cudnn.enabled = True

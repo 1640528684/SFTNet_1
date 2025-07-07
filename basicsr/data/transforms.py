@@ -234,4 +234,40 @@ def img_rotate(img, angle, center=None, scale=1.0):
     rotated_img = cv2.warpAffine(img, matrix, (w, h))
     return rotated_img
 
+# 新增类包装器
+class PairedRandomCrop:
+    def __init__(self, gt_patch_size, scale):
+        self.gt_patch_size = gt_patch_size
+        self.scale = scale
+
+    def __call__(self, results):
+        # 适配BasicSR的数据流格式（results是包含'lq'和'gt'的dict）
+        lq, gt = paired_random_crop(
+            img_gts=[results['gt']],
+            img_lqs=[results['lq']],
+            gt_patch_size=self.gt_patch_size,
+            scale=self.scale,
+            gt_path=''  # 此处留空，因原始函数需要但实际不需要
+        )
+        results['lq'], results['gt'] = lq[0], gt[0]
+        return results
+class Augment:
+    def __init__(self, hflip=True, rotation=True, vflip=False):
+        self.hflip = hflip
+        self.rotation = rotation
+        self.vflip = vflip
+
+    def __call__(self, results):
+        # 处理成对数据
+        imgs, _ = augment(
+            imgs=[results['lq'], results['gt']],
+            hflip=self.hflip,
+            rotation=self.rotation,
+            vflip=self.vflip,
+            flows=None,
+            return_status=False
+        )
+        results['lq'], results['gt'] = imgs[0], imgs[1]
+        return results
+
 
