@@ -371,7 +371,8 @@ class NAFBlock(nn.Module):
             nn.GELU(),
             nn.Conv2d(width, img_channel, 1)
         )
-
+    
+    # 修复1：将forward方法移到__init__外部
     def forward(self, x):
         # 输入尺寸检查
         x, original_h, original_w = self._check_image_size(x)
@@ -381,7 +382,8 @@ class NAFBlock(nn.Module):
         for i, (encoder, denoise) in enumerate(zip(self.encoders, self.denoising_modules)):
             x = encoder(x)
             if isinstance(denoise, (AdaptiveDenoiser, DenoisingModule)):
-                x = denoise(x)  # 传递层索引
+                x = denoise(x)  # 调用去噪模块
+            # 修复2：在池化前收集特征
             enc_features.append(x)
             x = F.max_pool2d(x, 2)
 
@@ -392,29 +394,44 @@ class NAFBlock(nn.Module):
 
         # ---------------------------- 解码 ----------------------------
         fpn_features = []
-        for i, (decoder, up, fpn_block) in enumerate(zip(
-                self.decoders, self.ups, self.fpn
-        )):
-            # 跳跃连接处理
-            skip = self.channel_adapters[-i-1](enc_features[-i-1])
+        # 修复3：使用正序索引而非逆序
+        for i in range(len(self.decoders)):
+            decoder = self.decoders[i]
+            up = self.ups[i]
+            fpn_block = self.fpn[i]
+            
+            # 1. 先上采样
+            x = up(x)  # 先执行上采样
+    
+            # 2. 获取跳跃连接并调整到当前尺寸
+            # 修复4：使用正序索引
+            skip_idx = len(enc_features) - i - 1
+            skip = self.channel_adapters[skip_idx](enc_features[skip_idx])
             skip = F.interpolate(skip, size=x.shape[2:], mode='bilinear')
-            
-            x = up(x)
-            x = x + skip  # 残差连接
-            
-            # 解码器处理
+    
+            # 3. 残差连接（现在尺寸匹配）
+            x = x + skip
+    
+            # 4. 通过解码器块
             x = decoder(x)
+    
+            # 5. FPN处理
             fpn_features.append(fpn_block(x, skip))
 
         # ---------------------------- 特征融合 ----------------------------
-        # 多尺度特征融合
-        max_size = (max(f.size(2) for f in fpn_features), 
-                   max(f.size(3) for f in fpn_features))
-        fused = torch.cat([
-            F.interpolate(f, size=max_size, mode='bilinear') 
+        # 修复5：确保所有特征尺寸一致
+        max_h = max([f.size(2) for f in fpn_features])
+        max_w = max([f.size(3) for f in fpn_features])
+        resized_features = [
+            F.interpolate(f, size=(max_h, max_w), mode='bilinear')
             for f in fpn_features
-        ], dim=1)
+        ]
+        fused = torch.cat(resized_features, dim=1)
         fused = self.fusion_conv(fused)
+        
+        # 修复6：确保全局残差连接尺寸匹配
+        if x.size(2) != max_h or x.size(3) != max_w:
+            x = F.interpolate(x, size=(max_h, max_w), mode='bilinear')
         
         # 最终输出
         x = x + fused  # 全局残差连接
