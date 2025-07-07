@@ -338,3 +338,33 @@ class Compose:
             format_string += '    {0}'.format(t)
         format_string += '\n)'
         return format_string
+
+class Resize:
+    """BasicSR专用的图像尺寸调整类"""
+    def __init__(self, size):
+        if isinstance(size, int):
+            self.size = (size, size)
+        else:
+            self.size = size  # (height, width)
+
+    def __call__(self, results):
+        if isinstance(results, dict):
+            # 处理字典输入（包含'lq'和'gt'）
+            results['lq'] = self._resize(results['lq'])
+            if 'gt' in results:
+                results['gt'] = self._resize(results['gt'])
+        else:
+            # 处理单图像输入
+            results = self._resize(results)
+        return results
+
+    def _resize(self, img):
+        """实际调整尺寸实现"""
+        if isinstance(img, np.ndarray):
+            return cv2.resize(img, (self.size[1], self.size[0]), interpolation=cv2.INTER_LINEAR)
+        elif isinstance(img, torch.Tensor):
+            return F.interpolate(img.unsqueeze(0), size=self.size, mode='bilinear').squeeze(0)
+        raise TypeError(f"Unsupported input type: {type(img)}")
+    
+    def __repr__(self):
+        return f"{self.__class__.__name__}(size={self.size})"
