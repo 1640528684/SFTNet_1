@@ -27,7 +27,8 @@ from basicsr.data.transforms import (  # 直接从transforms.py导入
     PairedRandomCrop,
     Augment,
     AdjustSize,
-    Compose
+    Compose,
+    Resize
 )
 import basicsr.data.transforms as transforms
 

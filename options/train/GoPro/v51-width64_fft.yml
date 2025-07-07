@@ -32,7 +32,8 @@ datasets:
     batch_size_per_gpu: 6
     dataset_enlarge_ratio: 1
     transforms:
-        - ['AdjustSize', {'patch_size': 16}]      # 先调整尺寸
+        - ['Resize', {'size': [128, 128]}]
+        - ['AdjustSize', {'patch_size': 16}]
         - ['PairedRandomCrop', {'gt_patch_size': 128, 'scale': 1}]
         - ['Augment', {'hflip': True, 'rotation': True}]
     phase: train
