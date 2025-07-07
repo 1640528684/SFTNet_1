@@ -285,14 +285,33 @@ class Augment:
         )
         results['lq'], results['gt'] = imgs[0], imgs[1]
         return results
+    
 class AdjustSize:
-    """包装adjust_image_size函数为类"""
+    """替代Lambda的尺寸调整类"""
     def __init__(self, patch_size):
         self.patch_size = patch_size
 
     def __call__(self, results):
-        results['lq'] = adjust_image_size(results['lq'], self.patch_size)
-        results['gt'] = adjust_image_size(results['gt'], self.patch_size)
+        if isinstance(results, dict):  # 处理字典输入
+            results['lq'] = self._adjust(results['lq'])
+            if 'gt' in results:
+                results['gt'] = self._adjust(results['gt'])
+        else:  # 兼容单图像输入
+            results = self._adjust(results)
         return results
+
+    def _adjust(self, img):
+        """实际调整函数"""
+        if isinstance(img, np.ndarray):
+            h, w = img.shape[:2]
+            new_h = (h // self.patch_size) * self.patch_size
+            new_w = (w // self.patch_size) * self.patch_size
+            return img[:new_h, :new_w]
+        elif isinstance(img, torch.Tensor):
+            h, w = img.shape[-2:]
+            new_h = (h // self.patch_size) * self.patch_size
+            new_w = (w // self.patch_size) * self.patch_size
+            return img[..., :new_h, :new_w]
+        raise TypeError(f"Unsupported type: {type(img)}")
 
 

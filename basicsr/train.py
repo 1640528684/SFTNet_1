@@ -25,7 +25,8 @@ from basicsr.utils.options import dict2str, parse
 import math
 from basicsr.data.transforms import (  # 直接从transforms.py导入
     PairedRandomCrop,
-    Augment
+    Augment,
+    AdjustSize
 )
 import basicsr.data.transforms as transforms
 
@@ -99,7 +100,7 @@ def create_train_val_dataloader(opt, logger):
     train_loader = val_loader = None
     for phase, dataset_opt in opt['datasets'].items():
         transform_list = [
-            transforms.Lambda(lambda img: adjust_image_size(img, dataset_opt.get('patch_size', 16)))
+            AdjustSize(patch_size=dataset_opt.get('patch_size', 16))
         ]
         if 'transforms' in dataset_opt:
             transform_list.extend([getattr(transforms, t[0])(**t[1]) for t in dataset_opt['transforms']])
