@@ -8,6 +8,7 @@ import cv2
 import random
 from cv2 import rotate
 import numpy as np
+import torch
 
 
 def mod_crop(img, scale):
@@ -234,6 +235,21 @@ def img_rotate(img, angle, center=None, scale=1.0):
     rotated_img = cv2.warpAffine(img, matrix, (w, h))
     return rotated_img
 
+def adjust_image_size(img, patch_size):
+    """调整图像尺寸到patch_size的整数倍（保持长宽比）"""
+    if isinstance(img, np.ndarray):  # 处理numpy数组输入
+        h, w = img.shape[:2]
+        new_h = (h // patch_size) * patch_size
+        new_w = (w // patch_size) * patch_size
+        return img[:new_h, :new_w]
+    elif isinstance(img, torch.Tensor):  # 处理PyTorch Tensor输入
+        h, w = img.shape[-2:]
+        new_h = (h // patch_size) * patch_size
+        new_w = (w // patch_size) * patch_size
+        return img[..., :new_h, :new_w]
+    else:
+        raise TypeError(f"Unsupported input type: {type(img)}")
+
 # 新增类包装器
 class PairedRandomCrop:
     def __init__(self, gt_patch_size, scale):
@@ -268,6 +284,15 @@ class Augment:
             return_status=False
         )
         results['lq'], results['gt'] = imgs[0], imgs[1]
+        return results
+class AdjustSize:
+    """包装adjust_image_size函数为类"""
+    def __init__(self, patch_size):
+        self.patch_size = patch_size
+
+    def __call__(self, results):
+        results['lq'] = adjust_image_size(results['lq'], self.patch_size)
+        results['gt'] = adjust_image_size(results['gt'], self.patch_size)
         return results
 
 

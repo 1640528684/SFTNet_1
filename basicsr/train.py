@@ -27,6 +27,7 @@ from basicsr.data.transforms import (  # 直接从transforms.py导入
     PairedRandomCrop,
     Augment
 )
+import basicsr.data.transforms as transforms
 
 #重新初始化 cuDNN
 torch.backends.cudnn.enabled = True
