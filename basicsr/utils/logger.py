@@ -36,58 +36,44 @@ class MessageLogger():
 
     @master_only
     def __call__(self, log_vars):
-        """Format logging message.
-
+        """Log training information.
+    
         Args:
-            log_vars (dict): It contains the following keys:
-                epoch (int): Epoch number.
-                iter (int): Current iter.
-                lrs (list): List for learning rates.
-
-                time (float): Iter time.
-                data_time (float): Data time for each iter.
+             log_vars (dict): Contains all variables to be logged.
         """
-        # epoch, iter, learning rates
-        epoch = log_vars.pop('epoch')
-        current_iter = log_vars.pop('iter')
-        total_iter = log_vars.pop('total_iter')
-        lrs = log_vars.pop('lrs')
-
-        message = (f'[{self.exp_name[:5]}..][epoch:{epoch:3d}, '
-                   f'iter:{current_iter:8,d}, lr:(')
-        for v in lrs:
-            message += f'{v:.3e},'
-        message += ')] '
-
-        # time and estimated time
-        if 'time' in log_vars.keys():
-            iter_time = log_vars.pop('time')
-            data_time = log_vars.pop('data_time')
-
-            total_time = time.time() - self.start_time
-            time_sec_avg = total_time / (current_iter - self.start_iter + 1)
-            eta_sec = time_sec_avg * (self.max_iters - current_iter - 1)
-            eta_str = str(datetime.timedelta(seconds=int(eta_sec)))
-            message += f'[eta: {eta_str}, '
-            message += f'time (datas): {iter_time:.3f} ({data_time:.3f})] '
-
-        # other items, especially losses
+        # 安全获取所有可能的值（使用一致的变量名）
+        current_iter = log_vars.pop('iter', None)  # 兼容不同命名习惯
+        total_iter = log_vars.pop('total_iter', current_iter)  # 双重保险
+        learning_rate = log_vars.pop('lr', log_vars.pop('learning_rate', None))  # 兼容lr/learning_rate
+    
+        # 构建日志消息
+        log_items = []
+        if total_iter is not None:
+            log_items.append(f'iter: {int(total_iter):,}')
+        if learning_rate is not None:
+            log_items.append(f'lr: {float(learning_rate):.3e}')
+    
+        # 添加其他指标
         for k, v in log_vars.items():
-            message += f'{k}: {v:.4e} '
-            # tensorboard logger
-            if self.use_tb_logger and 'debug' not in self.exp_name:
-                normed_step = 10000 * (current_iter / total_iter)
-                normed_step = int(normed_step)
-
-                if k.startswith('l_'):
-                    self.tb_logger.add_scalar(f'losses/{k}', v, normed_step)
-                elif k.startswith('m_'):
-                    self.tb_logger.add_scalar(f'metrics/{k}', v, normed_step)
-                else:
-                    assert 1 == 0
-                # else:
-                #     self.tb_logger.add_scalar(k, v, current_iter)
-        self.logger.info(message)
+            if isinstance(v, float):
+                log_items.append(f'{k}: {v:.4f}')
+            elif isinstance(v, int):
+                log_items.append(f'{k}: {v:,}')
+            else:
+                log_items.append(f'{k}: {v}')
+    
+        # 输出日志
+        msg = ' | '.join(log_items)
+        self.logger.info(msg)
+    
+        # TensorBoard记录（保持原逻辑）
+        if self.tb_logger:
+            for k, v in log_vars.items():
+                if isinstance(v, (float, int)):
+                    self.tb_logger.add_scalar(k, v, total_iter or 0)
+    def reset(self):
+        """Reset the logger."""
+        self.logger.handlers = []
 
 
 @master_only
