@@ -36,41 +36,48 @@ class MessageLogger():
 
     @master_only
     def __call__(self, log_vars):
-        """Log training information.
-    
-        Args:
-             log_vars (dict): Contains all variables to be logged.
-        """
-        # 安全获取所有可能的值（使用一致的变量名）
-        current_iter = log_vars.pop('iter', None)  # 兼容不同命名习惯
-        total_iter = log_vars.pop('total_iter', current_iter)  # 双重保险
-        learning_rate = log_vars.pop('lr', log_vars.pop('learning_rate', None))  # 兼容lr/learning_rate
+        """Log training information."""
+        # 安全获取值
+        total_iter = log_vars.get('iter', log_vars.get('total_iter'))
+        lr = log_vars.get('lr', log_vars.get('learning_rate'))
     
         # 构建日志消息
         log_items = []
         if total_iter is not None:
             log_items.append(f'iter: {int(total_iter):,}')
-        if learning_rate is not None:
-            log_items.append(f'lr: {float(learning_rate):.3e}')
+        if lr is not None:
+            log_items.append(f'lr: {float(lr):.3e}')
     
-        # 添加其他指标
+        # 添加其他指标（防御性处理）
         for k, v in log_vars.items():
-            if isinstance(v, float):
-                log_items.append(f'{k}: {v:.4f}')
-            elif isinstance(v, int):
-                log_items.append(f'{k}: {v:,}')
-            else:
-                log_items.append(f'{k}: {v}')
-    
-        # 输出日志
-        msg = ' | '.join(log_items)
-        self.logger.info(msg)
-    
-        # TensorBoard记录（保持原逻辑）
-        if self.tb_logger:
-            for k, v in log_vars.items():
+            if k in ['iter', 'total_iter', 'lr', 'learning_rate']:
+                continue
+            try:
                 if isinstance(v, (float, int)):
-                    self.tb_logger.add_scalar(k, v, total_iter or 0)
+                    log_items.append(f'{k}: {v:.4f}')
+                elif isinstance(v, (list, tuple)):
+                    log_items.append(f'{k}: {np.mean(v):.4f}')
+                elif hasattr(v, 'item'):
+                    log_items.append(f'{k}: {v.item():.4f}')
+                else:
+                    log_items.append(f'{k}: {v}')
+            except Exception as e:
+                self.logger.warning(f'Log format error for {k}: {str(e)}')
+    
+        self.logger.info(' | '.join(log_items))
+    
+        # TensorBoard记录
+        if self.tb_logger and total_iter is not None:
+            for k, v in log_vars.items():
+                try:
+                    if isinstance(v, (float, int)):
+                        self.tb_logger.add_scalar(f'train/{k}', float(v), total_iter)
+                    elif isinstance(v, (list, tuple)) and len(v) > 0:
+                        self.tb_logger.add_scalar(f'train/{k}', float(np.mean(v)), total_iter)
+                    elif hasattr(v, 'item'):
+                        self.tb_logger.add_scalar(f'train/{k}', v.item(), total_iter)
+                except Exception as e:
+                    self.logger.warning(f'TensorBoard log failed for {k}: {str(e)}')
     def reset(self):
         """Reset the logger."""
         self.logger.handlers = []

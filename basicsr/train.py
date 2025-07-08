@@ -216,17 +216,33 @@ def main():
                 log_vars = {
                     'epoch': start_epoch,
                     'iter': current_iter,
-                    'lrs': model.get_current_learning_rate(),
                     'time': time.time() - data_time,
                 }
-                log_vars.update(model.get_current_log())
-                msg_logger(log_vars)
+            # 安全处理学习率
+            lrs = model.get_current_learning_rate()
+            if isinstance(lrs, (list, tuple)):
+                log_vars['lr'] = float(lrs[0])
+            else:
+                log_vars['lr'] = float(lrs)
+    
+            # 安全处理模型日志
+            current_log = model.get_current_log()
+            for k, v in current_log.items():
+                if isinstance(v, (list, tuple)):
+                    log_vars[k] = float(np.mean(v))
+                elif isinstance(v, (torch.Tensor, np.ndarray)):
+                    log_vars[k] = float(v.mean().item())
+                else:
+                    log_vars[k] = v
+    
+            msg_logger(log_vars)
 
-                if tb_logger:
-                    for k, v in log_vars.items():
-                        if k.startswith('l_') or k == 'lrs':
-                            tb_logger.add_scalar(f'train/{k}', v, current_iter)
-                    tb_logger.flush()
+            if tb_logger:
+                for k, v in log_vars.items():
+                    try:
+                        tb_logger.add_scalar(f'train/{k}', float(v), current_iter)
+                    except ValueError as e:
+                        logger.warning(f'Skip logging {k}: {str(e)}')
 
             # 验证
             if opt.get('val') and current_iter % opt['val']['val_freq'] == 0:
