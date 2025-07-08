@@ -6,6 +6,7 @@ import os
 import random
 import sys
 import time
+import numpy as np
 
 from os import path as osp
 root_dir = os.path.dirname(os.path.abspath(__file__))  # 获取当前脚本所在目录（basicsr）
@@ -230,10 +231,13 @@ def main():
             for k, v in current_log.items():
                 if isinstance(v, (list, tuple)):
                     log_vars[k] = float(np.mean(v))
-                elif isinstance(v, (torch.Tensor, np.ndarray)):
-                    log_vars[k] = float(v.mean().item())
-                else:
+                elif hasattr(v, '__array__'):  # 兼容numpy和torch
+                    log_vars[k] = float(np.array(v).mean())
+                elif isinstance(v, (float, int)):
                     log_vars[k] = v
+                else:
+                    log_vars[k] = float(v) if str(v).replace('.','',1).isdigit() else 0.0
+                    logger.warning(f'Unexpected log type: {k}={v} (converted to {log_vars[k]})')
     
             msg_logger(log_vars)
 
