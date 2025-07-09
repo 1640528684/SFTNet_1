@@ -22,7 +22,7 @@ datasets:
     io_backend:
       type: disk #lmdb
 
-    gt_size: 128  #256
+    gt_size: 256  #128
     use_flip: true
     use_rot: true
 
@@ -32,9 +32,9 @@ datasets:
     batch_size_per_gpu: 8 #6
     dataset_enlarge_ratio: 1
     transforms:
-        - ['Resize', {'size': [128, 128]}]
+        - ['Resize', {'size': [256, 256]}]
         - ['AdjustSize', {'patch_size': 16}]
-        - ['PairedRandomCrop', {'gt_patch_size': 128, 'scale': 1}]
+        - ['PairedRandomCrop', {'gt_patch_size': 256, 'scale': 1}]
         - ['Augment', {'hflip': True, 'rotation': True}]
     phase: train
     scale: 1
@@ -90,7 +90,6 @@ train:
     T_0: 10             # 重启周期
     T_mult: 2  # 周期倍增系数
     eta_min: !!float 1e-6    # 最小学习率
-    warmup_iters: 1000  # 新增warmup
 
   total_iter: 400000
   warmup_iter: -1 # no warm up
