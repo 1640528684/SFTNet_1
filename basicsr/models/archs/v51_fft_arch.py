@@ -294,6 +294,12 @@ class NAFBlock(nn.Module):
     
     # 修复1：将forward方法移到__init__外部
     def forward(self, x):
+        
+        assert x.dim() == 4, "输入必须是4D张量"
+        max_h, max_w = 2048, 2048  # 根据显存设置上限
+        if x.size(2) > max_h or x.size(3) > max_w:
+            raise ValueError(f"输入尺寸{h}x{w}超过最大允许{max_h}x{max_w}")
+        
         # 输入尺寸检查
         x, original_h, original_w = self._check_image_size(x)
         
@@ -365,14 +371,14 @@ class NAFBlock(nn.Module):
 
     def _check_image_size(self, x):
         _, _, h, w = x.size()
-        print(f"原始尺寸: {h}x{w}")
+        print(f"[NAFBlock] 原始尺寸: {h}x{w}")  # 添加前缀标识
     
         # 计算填充量
         pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
         pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
     
         if pad_h > 0 or pad_w > 0:
-            print(f"需要填充: h={pad_h}, w={pad_w}")
+            print(f"[NAFBlock] 填充尺寸: h+{pad_h}, w+{pad_w}")
             x = F.pad(x, (0, pad_w, 0, pad_h), 'reflect')
     
         # 验证填充后尺寸
@@ -397,55 +403,18 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
 
     def _check_image_size(self, x):
         _, _, h, w = x.size()
+        print(f"[v51fftLocal] 原始尺寸: {h}x{w}")  # 调试信息
+    
+        # 保持与Local_Base一致的简单填充逻辑
         mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
         mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
-        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        return x,h,w
+    
+        if mod_pad_h > 0 or mod_pad_w > 0:
+            x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+    
+        return x, h, w  # 注意返回格式需与Local_Base兼容
 
-# class DenoisingModule(nn.Module):
-#     def __init__(self, in_channels=64, out_channels=None, num_blocks=1):
-#         super(DenoisingModule, self).__init__()
-#         self.in_channels = in_channels
-#         self.out_channels = out_channels if out_channels is not None else in_channels
-#         # 第一层卷积保持通道数不变
-#         self.conv_first = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
-#         # Transformer块
-#         blocks = []
-#         for _ in range(num_blocks):
-#             blocks.append(TransformerBlock(dim=in_channels))
-#         self.transformer_blocks = nn.Sequential(*blocks)
-#         # DFFN模块
-#         self.dffn = DFFN(dim=in_channels, ffn_expansion_factor=1.0)  # 设置为1.0确保不扩展通道
-#         # 最后一层卷积处理输出通道
-#         self.conv_last = nn.Conv2d(in_channels, self.out_channels, kernel_size=3, padding=1)
-#         # 残差连接适配器
-#         if in_channels != self.out_channels:
-#             self.residual_adapter = nn.Conv2d(in_channels, self.out_channels, kernel_size=1)
-#         else:
-#             self.residual_adapter = None
-#     def forward(self, x):
-#         identity = x
-#         # 第一层处理
-#         x = F.relu(self.conv_first(x))
-#         # Transformer处理
-#         x = self.transformer_blocks(x)
-#         # DFFN处理
-#         x = self.dffn(x)
-#         # 最后一层处理
-#         x = self.conv_last(x)  
-#         # 处理残差连接
-#         if identity.shape[1] != self.out_channels:
-#             if self.residual_adapter is not None:
-#                 identity = self.residual_adapter(identity)
-#             else:
-#                 # 如果没定义适配器但需要调整通道，使用1x1卷积
-#                 identity = F.conv2d(identity, 
-#                                    torch.eye(self.out_channels, identity.shape[1])
-#                                    .unsqueeze(-1).unsqueeze(-1)
-#                                    .to(identity.device))    
-#         # 残差连接
-#         x = x + identity  
-#         return x
+
 class ChannelAttention(nn.Module):
     """安全的通道注意力机制"""
     def __init__(self, channel, reduction=4):
@@ -459,16 +428,25 @@ class ChannelAttention(nn.Module):
         )
 
     def forward(self, x):
+        b, c, h, w = x.size()
+        print(f"ChannelAttention输入尺寸: {x.shape}")  # 调试
+        
         # 添加维度检查
-        if x.dim() != 4:
-            raise ValueError(f"输入必须是4D张量 (B,C,H,W)，实际是 {x.dim()}D")
+        # if x.dim() != 4:
+        #     raise ValueError(f"输入必须是4D张量 (B,C,H,W)，实际是 {x.dim()}D")
             
         # 平均池化后直接得到[B,C,1,1]
         y = self.avg_pool(x)
+        print(f"AvgPool后尺寸: {y.shape}")  # 验证
+        
+        try:
+            y = y.view(b, c)  # 转换为[B,C]
+        except RuntimeError as e:
+            raise RuntimeError(f"重塑失败！输入形状: {y.shape}，目标形状: [{b},{c}]") from e
         
         # 安全重塑
-        b, c = y.size(0), y.size(1)
-        y = y.view(b, c)  # 转换为[B,C]
+        # b, c = y.size(0), y.size(1)
+        # y = y.view(b, c)  # 转换为[B,C]
         
         y = self.fc(y).view(b, c, 1, 1)
         return x * y.expand_as(x)  # 广播相乘
