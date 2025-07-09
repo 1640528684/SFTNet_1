@@ -220,7 +220,7 @@ class NAFBlock(nn.Module):
         for i in range(len(enc_blk_nums)):
             in_ch = img_channel if i == 0 else width * (2 ** (i-1))
             out_ch = width * (2 ** i)
-            #enc_channels.append(out_ch)
+            enc_channels.append(out_ch)
             
             # 增强的编码器块（带残差连接）
             layers = []

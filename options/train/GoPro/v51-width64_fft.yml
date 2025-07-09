@@ -29,7 +29,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 4
-    batch_size_per_gpu: 6
+    batch_size_per_gpu: 8 #6
     dataset_enlarge_ratio: 1
     transforms:
         - ['Resize', {'size': [128, 128]}]
@@ -39,7 +39,7 @@ datasets:
     phase: train
     scale: 1
     prefetch_mode: ~
-    accumulation_steps: 4  # 梯度累积步数
+    accumulation_steps: 2  # 4 梯度累积步数
     use_grad_clip: true    # 启用梯度裁剪
     use_amp: true          # 启用混合精度
 
@@ -59,7 +59,7 @@ datasets:
 
 network_g:
   type: v51fftLocal
-  width: 48  #64
+  width: 64  #48
   enc_blk_nums: [2, 2, 3, 6]  #[1, 1, 1, 28]
   middle_blk_num: 2
   dec_blk_nums: [4, 2, 1, 1]
@@ -68,6 +68,7 @@ network_g:
     enable_layers: [1, 2, 3]  # 跳过第一层（保留底层细节）
     type: "adaptive"         # 自适应强度去噪
     depth_aware: true        # 随深度增加去噪强度
+    max_strength: 0.3  # 新增参数限制最大强度
 
 # path
 path:
@@ -83,16 +84,13 @@ train:
     weight_decay: !!float 5e-5 #1e-3
     betas: [0.9,0.999] #[0.9, 0.9]
 
-  # scheduler:
-  #   type: TrueCosineAnnealingLR
-  #   T_max: 400000
-  #   eta_min: !!float 1e-7
   # 学习率调度
   scheduler:
     type: CosineAnnealingWarmRestarts
     T_0: 10             # 重启周期
     T_mult: 2  # 周期倍增系数
     eta_min: !!float 1e-6    # 最小学习率
+    warmup_iters: 1000  # 新增warmup
 
   total_iter: 400000
   warmup_iter: -1 # no warm up
@@ -100,7 +98,7 @@ train:
   # losses
   pixel_opt:
     type: L1Loss #PSNRLoss
-    loss_weight: 0.6
+    loss_weight: 0.3
 
   fft_loss_opt:
     type: FFTLoss
