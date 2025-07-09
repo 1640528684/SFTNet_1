@@ -220,15 +220,16 @@ class NAFBlock(nn.Module):
         for i in range(len(enc_blk_nums)):
             in_ch = img_channel if i == 0 else width * (2 ** (i-1))
             out_ch = width * (2 ** i)
-            enc_channels.append(out_ch)
+            #enc_channels.append(out_ch)
             
             # 增强的编码器块（带残差连接）
             layers = []
             for _ in range(enc_blk_nums[i]):
                 layers += [
                     nn.Conv2d(in_ch if _ == 0 else out_ch, out_ch, 3, padding=1),
+                    nn.BatchNorm2d(out_ch),  # 添加批归一化
                     nn.GELU(),
-                    nn.Conv2d(out_ch, out_ch, 3, padding=1),
+                    #nn.Conv2d(out_ch, out_ch, 3, padding=1),
                     ChannelAttention(out_ch)  # 通道注意力
                 ]
                 if _ > 0:  # 残差连接
@@ -296,6 +297,11 @@ class NAFBlock(nn.Module):
         # 输入尺寸检查
         x, original_h, original_w = self._check_image_size(x)
         
+        # 初始检查
+        print(f"输入尺寸: {x.shape}")
+        x, original_h, original_w = self._check_image_size(x)
+        print(f"填充后尺寸: {x.shape}")
+        
         # ---------------------------- 编码 ----------------------------
         enc_features = []
         for i, (encoder, denoise) in enumerate(zip(self.encoders, self.denoising_modules)):
@@ -359,9 +365,21 @@ class NAFBlock(nn.Module):
 
     def _check_image_size(self, x):
         _, _, h, w = x.size()
-        mod_pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
-        mod_pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
-        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+        print(f"原始尺寸: {h}x{w}")
+    
+        # 计算填充量
+        pad_h = (self.patch_size - h % self.patch_size) % self.patch_size
+        pad_w = (self.patch_size - w % self.patch_size) % self.patch_size
+    
+        if pad_h > 0 or pad_w > 0:
+            print(f"需要填充: h={pad_h}, w={pad_w}")
+            x = F.pad(x, (0, pad_w, 0, pad_h), 'reflect')
+    
+        # 验证填充后尺寸
+        _, _, new_h, new_w = x.shape
+        assert new_h % self.patch_size == 0 and new_w % self.patch_size == 0, \
+            f"填充后尺寸 {new_h}x{new_w} 不能被 {self.patch_size} 整除"
+    
         return x, h, w
     
 
@@ -429,22 +447,31 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
 #         x = x + identity  
 #         return x
 class ChannelAttention(nn.Module):
-    """轻量通道注意力"""
+    """安全的通道注意力机制"""
     def __init__(self, channel, reduction=4):
         super().__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)  # 输出固定为[B,C,1,1]
         self.fc = nn.Sequential(
             nn.Linear(channel, channel // reduction),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Linear(channel // reduction, channel),
             nn.Sigmoid()
         )
 
     def forward(self, x):
-        b, c, _, _ = x.shape
-        y = self.avg_pool(x).view(b, c)
+        # 添加维度检查
+        if x.dim() != 4:
+            raise ValueError(f"输入必须是4D张量 (B,C,H,W)，实际是 {x.dim()}D")
+            
+        # 平均池化后直接得到[B,C,1,1]
+        y = self.avg_pool(x)
+        
+        # 安全重塑
+        b, c = y.size(0), y.size(1)
+        y = y.view(b, c)  # 转换为[B,C]
+        
         y = self.fc(y).view(b, c, 1, 1)
-        return x * y.expand_as(x)
+        return x * y.expand_as(x)  # 广播相乘
 
 class AdaptiveDenoiser(nn.Module):
     def __init__(self, channels, layer_idx):
