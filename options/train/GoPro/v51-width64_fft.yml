@@ -33,7 +33,7 @@ datasets:
     dataset_enlarge_ratio: 1
     transforms:
         - ['Resize', {'size': [256, 256]}]
-        - ['EnsureDivisible', {'divisor': 8}]  # 新增
+        #- ['EnsureDivisible', {'divisor': 8}]  # 新增
         - ['AdjustSize', {'patch_size': 16}]
         - ['PairedRandomCrop', {'gt_patch_size': 512, 'scale': 1}]
         - ['Augment', {'hflip': True, 'rotation': True}]
