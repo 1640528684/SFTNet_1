@@ -416,40 +416,51 @@ class v51fftLocal(NAFBlock, Local_Base):  # 修改继承顺序
 
 
 class ChannelAttention(nn.Module):
-    """安全的通道注意力机制"""
+    """鲁棒的通道注意力机制（适配大尺寸输入）"""
     def __init__(self, channel, reduction=4):
         super().__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)  # 输出固定为[B,C,1,1]
+        # 双重池化保障机制
+        self.global_pool = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),  # 自适应池化
+            nn.Identity()  # 保持兼容性
+        )
         self.fc = nn.Sequential(
             nn.Linear(channel, channel // reduction),
             nn.ReLU(inplace=True),
             nn.Linear(channel // reduction, channel),
             nn.Sigmoid()
         )
+        
+        # 调试开关
+        self.debug = False
 
     def forward(self, x):
         b, c, h, w = x.size()
-        print(f"ChannelAttention输入尺寸: {x.shape}")  # 调试
         
-        # 添加维度检查
-        # if x.dim() != 4:
-        #     raise ValueError(f"输入必须是4D张量 (B,C,H,W)，实际是 {x.dim()}D")
-            
-        # 平均池化后直接得到[B,C,1,1]
-        y = self.avg_pool(x)
-        print(f"AvgPool后尺寸: {y.shape}")  # 验证
+        if self.debug:
+            print(f"输入尺寸: {x.shape} | 通道数: {c}")
+        
+        # 方案1：显式全局平均池化（保证输出[B,C,1,1]）
+        y = F.avg_pool2d(x, kernel_size=(h, w))
+        
+        # 方案2：自适应池化后备（双重保障）
+        if y.size(2) != 1 or y.size(3) != 1:
+            y = self.global_pool(x)
+            if self.debug:
+                print(f"备用池化激活，输出尺寸: {y.shape}")
         
         try:
-            y = y.view(b, c)  # 转换为[B,C]
+            y = y.view(b, c)
         except RuntimeError as e:
-            raise RuntimeError(f"重塑失败！输入形状: {y.shape}，目标形状: [{b},{c}]") from e
-        
-        # 安全重塑
-        # b, c = y.size(0), y.size(1)
-        # y = y.view(b, c)  # 转换为[B,C]
-        
+            raise RuntimeError(
+                f"通道注意力重塑失败！输入形状: {y.shape}→目标[{b},{c}]\n"
+                f"原始输入尺寸: {x.shape} | 可能原因：\n"
+                "1. 池化层未正确压缩空间维度\n"
+                "2. 输入通道数不匹配"
+            ) from e
+            
         y = self.fc(y).view(b, c, 1, 1)
-        return x * y.expand_as(x)  # 广播相乘
+        return x * y.expand_as(x)
 
 class AdaptiveDenoiser(nn.Module):
     def __init__(self, channels, layer_idx):

@@ -368,3 +368,17 @@ class Resize:
     
     def __repr__(self):
         return f"{self.__class__.__name__}(size={self.size})"
+
+class EnsureMultipleOf:
+    """确保长宽是divisor的整数倍"""
+    def __init__(self, divisor=8):
+        self.divisor = divisor
+
+    def __call__(self, data):
+        h, w = data['lq'].shape[-2:]
+        new_h = h - (h % self.divisor)
+        new_w = w - (w % self.divisor)
+        if new_h != h or new_w != w:
+            data['lq'] = F.interpolate(data['lq'], size=(new_h, new_w), mode='bilinear')
+            data['gt'] = F.interpolate(data['gt'], size=(new_h, new_w), mode='bilinear')
+        return data
