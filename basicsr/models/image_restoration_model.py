@@ -411,6 +411,7 @@ class ImageRestorationModel(BaseModel):
             metrics.append(value)
         metrics = torch.stack(metrics, 0)
         torch.distributed.reduce(metrics, dst=0)
+        
         if self.opt['rank'] == 0:
             metrics_dict = {}
             cnt = 0
@@ -424,11 +425,13 @@ class ImageRestorationModel(BaseModel):
                 metrics_dict[key] /= cnt
 
             self._log_validation_metric_values(current_iter, dataloader.dataset.opt['name'],
-                                               tb_logger, metrics_dict)
-        return 0.
+                                           tb_logger, metrics_dict)
+            return metrics_dict  # 确保返回指标字典
+            
+        return None
 
     def nondist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
-        self._run_validation(dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image)
+        return self._run_validation(dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image)
 
     def _run_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
         if isinstance(dataloader.dataset, torch.utils.data.Subset):
@@ -513,6 +516,9 @@ class ImageRestorationModel(BaseModel):
             for metric in self.metric_results.keys():
                 metrics_dict[metric] = self.metric_results[metric] / cnt
             self._log_validation_metric_values(current_iter, dataset_name, tb_logger, metrics_dict)
+            return metrics_dict  # 确保返回指标字典
+            
+        return None
 
     def _log_validation_metric_values(self, current_iter, dataset_name,tb_logger, metric_dict):
         log_str = f'Validation {dataset_name}, \t'
