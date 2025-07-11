@@ -272,7 +272,7 @@ def main():
     model.save(-1, -1)  # 保存最终模型
     if tb_logger:
         tb_logger.close()
-
+#测试
 if __name__ == '__main__':
     os.environ['GRPC_POLL_STRATEGY'] = 'epoll1'
     main()
